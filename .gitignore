@@ -1,0 +1,27 @@
+# IDE files
+.idea/
+*.iml
+/shelf/
+/workspace.xml
+/httpRequests/
+/dataSources/
+/dataSources.local.xml
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Checkpoints and logs
+*.log
+*.pth
+*.ckpt
+
+# Data
+*.h5
+*.tar.xz
+data/
+model/
+model_zoo/
+
+# VSCode (可选)
+.vscode/
