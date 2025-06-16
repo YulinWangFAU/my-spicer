@@ -166,7 +166,8 @@ if __name__ == "__main__":
     model_name = 'SPICER_fastmri'
     batch = 1
     workers = 2
-    epoch_number = 200
+    #epoch_number = 200
+    epoch_number = 5
     data_len = 1
     acceleration_factor = 8
     # save_root = './model_zoo/SPICER_fastmri_%x/%s' % (acceleration_factor, str(now.strftime("%d-%b-%Y-%H-%M-%S")))
@@ -175,7 +176,8 @@ if __name__ == "__main__":
 
     dataset = RealMeasurement(
         #idx_list=range(564, 1355),
-        idx_list=[1235,1237,1238,1243,1244,1245],
+        #idx_list=[1235,1237,1238,1243,1244,1245],
+        idx_list=[1235],
         acceleration_rate=acceleration_factor,
         is_return_y_smps_hat=True,
         mask_pattern='uniformly_cartesian',
@@ -185,7 +187,8 @@ if __name__ == "__main__":
 
     val_dataset = RealMeasurement(
         #idx_list=range(1355,1377),
-        idx_list=[1355, 1359],
+        #idx_list=[1355, 1359],
+        idx_list=[1355],
         acceleration_rate=acceleration_factor,
         is_return_y_smps_hat=True,
         mask_pattern='uniformly_cartesian',
