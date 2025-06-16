@@ -310,7 +310,10 @@ class RealMeasurement(Dataset):
         self.__index_maps = []
         for idx in idx_list:
             if INDEX2DROP(idx):
+                print(f"[DROPPED] idx={idx}")
                 continue
+            else:
+                print(f"[KEPT] idx={idx}")
 
             ret = load_real_dataset_handle(
                 idx,
@@ -332,6 +335,7 @@ class RealMeasurement(Dataset):
                 slice_end = INDEX2SLICE_END(idx)
             else:
                 slice_end = num_slice - 5
+            print(f"[IDX {idx}] x_hat shape: {num_slice}, slice_start={slice_start}, slice_end={slice_end}")
 
             for s in range(slice_start, slice_end):
                 self.__index_maps.append([ret, s])
