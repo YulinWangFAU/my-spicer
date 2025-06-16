@@ -262,6 +262,7 @@ def load_real_dataset_handle(
             smps_hat = np.zeros_like(y)
             for i in iter_:
                 tmp = EspiritCalib(y[i] * mask, device=Device(0), show_pbar=False).run()
+
                 tmp = cupy.asnumpy(tmp)
                 smps_hat[i] = tmp
 
