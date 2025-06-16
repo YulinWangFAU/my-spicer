@@ -285,7 +285,9 @@ def load_real_dataset_handle(
 
         y = torch.from_numpy(y)
         smps_hat = torch.from_numpy(smps_hat)
-
+        # 添加这行确保 mask 是 torch.Tensor
+        if isinstance(mask, np.ndarray):
+            mask = torch.from_numpy(mask)
         x_hat = ftran(y, smps_hat, mask)
 
         with h5py.File(x_hat_h5, 'w') as f:
