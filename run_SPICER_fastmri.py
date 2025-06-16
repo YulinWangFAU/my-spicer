@@ -8,7 +8,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 # from basic_network import VarNet
-from networks.network_n2n_tau_8x import SPNet
+from networks.SPICER_fastmri_network import SPNet
 from tqdm import tqdm
 import scipy.io as sio
 from datetime import datetime
