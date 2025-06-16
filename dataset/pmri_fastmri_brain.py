@@ -41,7 +41,8 @@ INDEX2FILE = lambda idx: INDEX2_helper(idx, 'FILE')
 def INDEX2DROP(idx):
     ret = INDEX2_helper(idx, 'DROP')
 
-    if ret in ['0', 'false', 'False', 0.0]:
+    #if ret in ['0', 'false', 'False', 0.0]:
+    if ret in ['', '0', 'false', 'none', 'nan']:  # 所有空/无效都视为 False
         return False
     else:
         return True
