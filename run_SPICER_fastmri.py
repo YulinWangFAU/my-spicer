@@ -165,7 +165,8 @@ if __name__ == "__main__":
     now = datetime.now()
     model_name = 'SPICER_fastmri'
     batch = 1
-    workers = 2
+    #workers = 2
+    workers = 0
     #epoch_number = 200
     epoch_number = 5
     data_len = 1
