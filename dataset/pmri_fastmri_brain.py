@@ -7,12 +7,24 @@ import tifffile
 import pandas
 from torch.utils.data import Dataset
 
+# 设置数据路径（fastMRI 和 CSV）
 #### ROOT_PATH is where the fastmri dataset stored ####
-ROOT_PATH = './dataset/fastmri_brain_multicoil/'
+# ROOT_PATH = './dataset/fastmri_brain_multicoil/'
+ROOT_PATH = '/home/vault/iwi5/iwi5325h/fastmri_brain_multicoil/multicoil_val'
 
 #### DATASHEET_PATH is where the CSV datasheet stored ####
-DATASHEET_PATH = './dataset/'
-DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'fastmri_brain_multicoil.csv'))
+# DATASHEET_PATH = './dataset/'
+# DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'fastmri_brain_multicoil.csv'))
+DATASHEET_PATH = '/home/hpc/iwi5/iwi5325h/my-spicer/dataset'
+DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'filtered_0_fastmri_brain_multicoil.csv'))
+
+# 设置运行时临时缓存路径（中间输出）
+TMPDIR = os.environ.get("TMPDIR", f"/tmp/{os.environ.get('USER', 'user')}")
+REAL_OUTPUT_ROOT = os.path.join(TMPDIR, "spicer_tmp", "real")
+os.makedirs(REAL_OUTPUT_ROOT, exist_ok=True)
+os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
+os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
+os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 
 
 def INDEX2_helper(idx, key_):
@@ -25,6 +37,7 @@ def INDEX2_helper(idx, key_):
 
 INDEX2FILE = lambda idx: INDEX2_helper(idx, 'FILE')
 
+
 def INDEX2DROP(idx):
     ret = INDEX2_helper(idx, 'DROP')
 
@@ -32,6 +45,7 @@ def INDEX2DROP(idx):
         return False
     else:
         return True
+
 
 def INDEX2SLICE_START(idx):
     ret = INDEX2_helper(idx, 'SLICE_START')
@@ -103,7 +117,6 @@ def fmult(x, smps, mask):
 
 
 def uniformly_cartesian_mask(img_size, acceleration_rate, acs_percentage: float = 0.2, randomly_return: bool = False):
-
     ny = img_size[-1]
 
     ACS_START_INDEX = (ny // 2) - (int(ny * acs_percentage * (2 / acceleration_rate)) // 2)
@@ -125,7 +138,7 @@ def uniformly_cartesian_mask(img_size, acceleration_rate, acs_percentage: float 
     # else:
     #     mask = mask[0]
 
-    return mask[0], mask[acceleration_rate// 2]
+    return mask[0], mask[acceleration_rate // 2]
 
 
 _mask_fn = {
@@ -166,8 +179,11 @@ def load_real_dataset_handle(
         mask_pattern: str = 'uniformly_cartesian',
         smps_hat_method: str = 'eps',
 ):
+    #root_path = os.path.join(ROOT_PATH, 'real')
+    TMPDIR = os.environ.get("TMPDIR", f"/tmp/{os.environ.get('USER', 'user')}")
+    REAL_OUTPUT_ROOT = os.path.join(TMPDIR, "spicer_tmp", "real")
+    root_path = REAL_OUTPUT_ROOT
 
-    root_path = os.path.join(ROOT_PATH, 'real')
     check_and_mkdir(root_path)
 
     y_h5 = os.path.join(ROOT_PATH, INDEX2FILE(idx) + '.h5')
@@ -222,8 +238,10 @@ def load_real_dataset_handle(
 
         if not os.path.exists(smps_hat_h5):
 
-            os.environ['CUPY_CACHE_DIR'] = '/tmp/cupy'
-            os.environ['NUMBA_CACHE_DIR'] = '/tmp/numba'
+            #os.environ['CUPY_CACHE_DIR'] = '/tmp/cupy'
+            #os.environ['NUMBA_CACHE_DIR'] = '/tmp/numba'
+            os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
+            os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
             from sigpy.mri.app import EspiritCalib
             from sigpy import Device
             import cupy
@@ -263,7 +281,7 @@ def load_real_dataset_handle(
         tmp = np.ones(shape=x_hat.shape, dtype=np.uint8)
         for i in range(x_hat.shape[0]):
             tmp[i] = np_normalize_to_uint8(abs(x_hat[i]).numpy())
-        tifffile.imwrite(x_hat_h5.replace('.h5', '_qc.tiff'), data=tmp, compression ='zlib', imagej=True)
+        tifffile.imwrite(x_hat_h5.replace('.h5', '_qc.tiff'), data=tmp, compression='zlib', imagej=True)
 
     ret = {
         'x_hat': x_hat_h5
@@ -276,7 +294,6 @@ def load_real_dataset_handle(
         })
 
     return ret
-
 
 
 class RealMeasurement(Dataset):

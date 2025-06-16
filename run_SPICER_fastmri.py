@@ -23,12 +23,35 @@ from utils.measures import *
 from dataset.pmri_fastmri_brain import fmult, ftran
 from utils.loss_functions import gradient_loss, forward_operator
 
-if torch.cuda.is_available():
-    device = 'cuda:2'
-else:
-    device = 'cpu'
+# if torch.cuda.is_available():
+#     device = 'cuda:2'
+# else:
+#     device = 'cpu'
 
+# ========== HPC 环境设置 ==========
+user = os.environ.get("USER", "unknown_user")
+TMPDIR = os.environ.get("TMPDIR", f"/tmp/{user}")
+HOME = os.path.expanduser("~")
 
+# 缓存目录
+os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
+os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
+os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
+
+# GPU 自动设置
+device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
+# 当前运行时间
+now = datetime.now()
+timestamp = now.strftime("%d-%b-%Y-%H-%M-%S")
+
+# 模型保存路径（临时 + 永久）
+model_name = 'SPICER_fastmri'
+save_root_tmp = os.path.join(TMPDIR, "spicer_out", f"{model_name}_{timestamp}")
+save_root_final = os.path.join(HOME, "spicer_outputs", model_name)
+os.makedirs(save_root_tmp, exist_ok=True)
+os.makedirs(save_root_final, exist_ok=True)
+save_root = save_root_tmp
 
 def train(epoch):
     model.train()
@@ -146,12 +169,13 @@ if __name__ == "__main__":
     epoch_number = 200
     data_len = 1
     acceleration_factor = 8
-    save_root = './model_zoo/SPICER_fastmri_%x/%s' % (acceleration_factor, str(now.strftime("%d-%b-%Y-%H-%M-%S")))
-    if not (os.path.exists(save_root)): os.makedirs(save_root)
+    # save_root = './model_zoo/SPICER_fastmri_%x/%s' % (acceleration_factor, str(now.strftime("%d-%b-%Y-%H-%M-%S")))
+    # if not (os.path.exists(save_root)): os.makedirs(save_root)
 
 
     dataset = RealMeasurement(
-        idx_list=range(564, 1355),
+        #idx_list=range(564, 1355),
+        idx_list=[1235,1237,1238,1243,1244,1245],
         acceleration_rate=acceleration_factor,
         is_return_y_smps_hat=True,
         mask_pattern='uniformly_cartesian',
@@ -160,7 +184,8 @@ if __name__ == "__main__":
     trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
 
     val_dataset = RealMeasurement(
-        idx_list=range(1355,1377),
+        #idx_list=range(1355,1377),
+        idx_list=[1355, 1359],
         acceleration_rate=acceleration_factor,
         is_return_y_smps_hat=True,
         mask_pattern='uniformly_cartesian',
@@ -188,3 +213,13 @@ if __name__ == "__main__":
             val(epoch)
 
         lr_scheduler(optimizer, epoch)
+
+    # 拷贝模型到永久保存路径
+    model_dir = os.path.join(save_root, "model_checkpoints")
+    print("\n✅ 拷贝模型到:", save_root_final)
+    for file in os.listdir(model_dir):
+        src = os.path.join(model_dir, file)
+        dst = os.path.join(save_root_final, file)
+        if not os.path.exists(dst):
+            os.system(f"cp {src} {dst}")
+    print("✅ 模型已保存完成 ✅")
