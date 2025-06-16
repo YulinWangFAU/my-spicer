@@ -41,12 +41,20 @@ INDEX2FILE = lambda idx: INDEX2_helper(idx, 'FILE')
 def INDEX2DROP(idx):
     ret = INDEX2_helper(idx, 'DROP')
 
-    #if ret in ['0', 'false', 'False', 0.0]:
-    if ret in ['', '0', 'false', 'none', 'nan']:  # 所有空/无效都视为 False
-        return False
-    else:
-        return True
+    # #if ret in ['0', 'false', 'False', 0.0]:
+    # if ret in ['', '0', 'false', 'none', 'nan']:  # 所有空/无效都视为 False
+    #     return False
+    # else:
+    #     return True
+    try:
+        ret = INDEX2_helper(idx, 'DROP')
+    except Exception:
+        return False  # 如果该值本来就不存在，默认不丢弃
 
+    if pandas.isna(ret):  # 如果是空（NaN）
+        return False
+
+    return str(ret).lower() not in ['0', 'false']
 
 def INDEX2SLICE_START(idx):
     ret = INDEX2_helper(idx, 'SLICE_START')
