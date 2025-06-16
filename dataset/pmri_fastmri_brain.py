@@ -348,7 +348,8 @@ class RealMeasurement(Dataset):
             if INDEX2SLICE_END(idx) is not None:
                 slice_end = INDEX2SLICE_END(idx)
             else:
-                slice_end = num_slice - 5
+                #slice_end = num_slice - 5
+                slice_end = num_slice - 10
             print(f"[IDX {idx}] x_hat shape: {num_slice}, slice_start={slice_start}, slice_end={slice_end}")
 
             for s in range(slice_start, slice_end):

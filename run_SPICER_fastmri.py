@@ -54,6 +54,8 @@ os.makedirs(save_root_final, exist_ok=True)
 save_root = save_root_tmp
 
 def train(epoch):
+    torch.cuda.empty_cache() #开始训练前清理 CUDA 缓存
+    torch.backends.cudnn.enabled = False #torch.backends.cudnn.enabled = False
     model.train()
     train_av_epoch_psnr_list = []
     train_av_epoch_loss_list = []
@@ -197,12 +199,19 @@ if __name__ == "__main__":
     )
     valloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 
+    # model = SPNet(
+    #     num_cascades=6,
+    #     pools=4,
+    #     chans=18,
+    #     sens_pools=4,
+    #     sens_chans=8,
+    # ).to(device)
     model = SPNet(
-        num_cascades=6,
-        pools=4,
-        chans=18,
-        sens_pools=4,
-        sens_chans=8,
+        num_cascades=2,  # 原来是 6
+        pools=2,  # 原来是 4
+        chans=8,  # 原来是 18
+        sens_pools=2,
+        sens_chans=4,
     ).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=0.0)
