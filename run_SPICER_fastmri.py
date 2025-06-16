@@ -228,7 +228,8 @@ if __name__ == "__main__":
         lr_scheduler(optimizer, epoch)
 
     # 拷贝模型到永久保存路径
-    model_dir = os.path.join(save_root, "model_checkpoints")
+    #model_dir = os.path.join(save_root, "model_checkpoints")
+    model_dir = save_root  # N2N_000.pth 就在这里
     print("\n✅ 拷贝模型到:", save_root_final)
     for file in os.listdir(model_dir):
         src = os.path.join(model_dir, file)
