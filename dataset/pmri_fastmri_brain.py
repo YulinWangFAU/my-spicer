@@ -32,8 +32,8 @@ def INDEX2_helper(idx, key_):
 
     assert len(file_id_df.index) == 1
 
-    return file_id_df[idx]
-
+    #return file_id_df[idx]
+    return file_id_df.values[0]
 
 INDEX2FILE = lambda idx: INDEX2_helper(idx, 'FILE')
 
