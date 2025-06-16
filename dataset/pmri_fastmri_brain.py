@@ -261,8 +261,11 @@ def load_real_dataset_handle(
 
             smps_hat = np.zeros_like(y)
             for i in iter_:
-                tmp = EspiritCalib(y[i] * mask, device=Device(0), show_pbar=False).run()
-
+                #tmp = EspiritCalib(y[i] * mask, device=Device(0), show_pbar=False).run()
+                if isinstance(y[i], np.ndarray) and isinstance(mask, torch.Tensor):
+                    tmp = EspiritCalib(y[i] * mask.cpu().numpy(), device=Device(0), show_pbar=False).run()
+                else:
+                    tmp = EspiritCalib(y[i] * mask, device=Device(0), show_pbar=False).run()
                 tmp = cupy.asnumpy(tmp)
                 smps_hat[i] = tmp
 
