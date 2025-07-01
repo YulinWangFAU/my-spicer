@@ -59,10 +59,12 @@ class EarlyStopping:
         self.best_score = None
         self.early_stop = False
         self.verbose = verbose
+        self.best_epoch = None
 
-    def __call__(self, val_score):
+    def __call__(self, val_score, epoch):
         if self.best_score is None:
             self.best_score = val_score
+            self.best_epoch = epoch
         elif val_score < self.best_score:
             self.counter += 1
             if self.verbose:
@@ -71,6 +73,7 @@ class EarlyStopping:
                 self.early_stop = True
         else:
             self.best_score = val_score
+            self.best_epoch = epoch
             self.counter = 0
 
 # Argument parser
@@ -97,6 +100,7 @@ train_ssim_log, val_ssim_log = [], []
 # 尝试恢复断点
 resume_path = os.path.join(save_root, "checkpoint_last.pth")
 start_epoch = 0
+best_model_state = None
 if os.path.exists(resume_path):
     print(f"🔁 恢复训练：{resume_path}")
     checkpoint = torch.load(resume_path, map_location=device)
@@ -168,7 +172,7 @@ def train(epoch):
 
 def val(epoch):
     model.eval()
-    psnrs, ssims = [], []
+    psnrs, ssims, losses = [], [], []
     with torch.no_grad():
         for samples in valloader:
             dicom, x0, y_input, smps_input, mask_input = samples
@@ -181,11 +185,14 @@ def val(epoch):
             target_show = normlize(torch.abs(dicom.squeeze()))
             psnrs.append(compare_psnr(output_show, target_show))
             ssims.append(compare_ssim(output_show[None, None], target_show[None, None]))
+            losses.append(F.mse_loss(output_show, target_show).item())
 
     val_psnr_log.append(np.mean(psnrs))
     val_ssim_log.append(np.mean(ssims))
+    val_loss_log.append(np.mean(losses))
     writer.add_scalar("PSNR/Val", val_psnr_log[-1], epoch)
     writer.add_scalar("SSIM/Val", val_ssim_log[-1], epoch)
+    writer.add_scalar("Loss/Val", val_loss_log[-1], epoch)
 
     if epoch % 5 == 0 or val_psnr_log[-1] >= max(val_psnr_log):
         torch.save(model.state_dict(), os.path.join(save_root, f"N2N_{epoch:03d}.pth"))
@@ -206,15 +213,20 @@ for epoch in range(start_epoch, epoch_number):
         'val_ssim_log': val_ssim_log,
     }, os.path.join(save_root, "checkpoint_last.pth"))
 
+    # 保存 best model
+    if val_psnr_log[-1] == max(val_psnr_log):
+        best_model_state = model.state_dict()
+        torch.save(best_model_state, os.path.join(save_root, "best_model.pth"))
+
     # Early stopping 检查
-    early_stopper(val_psnr_log[-1])
+    early_stopper(val_psnr_log[-1], epoch)
     if early_stopper.early_stop:
-        print("⛔️ Early stopping triggered at epoch", epoch)
+        print(f"⛔️ Early stopping triggered at epoch {epoch}, best epoch was {early_stopper.best_epoch}")
         break
 
 # 训练完成后保存曲线图
 plt.figure(figsize=(12, 4))
-plt.subplot(1, 3, 1); plt.plot(train_loss_log); plt.title("Train Loss"); plt.grid()
+plt.subplot(1, 3, 1); plt.plot(train_loss_log, label='Train'); plt.plot(val_loss_log, label='Val'); plt.title("Loss"); plt.legend(); plt.grid()
 plt.subplot(1, 3, 2); plt.plot(train_psnr_log, label='Train'); plt.plot(val_psnr_log, label='Val'); plt.title("PSNR"); plt.legend(); plt.grid()
 plt.subplot(1, 3, 3); plt.plot(train_ssim_log, label='Train'); plt.plot(val_ssim_log, label='Val'); plt.title("SSIM"); plt.legend(); plt.grid()
 plt.tight_layout()
