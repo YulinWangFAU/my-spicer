@@ -16,7 +16,7 @@ ROOT_PATH = '/home/vault/iwi5/iwi5325h/fastmri_brain_multicoil/multicoil_val'
 # DATASHEET_PATH = './dataset/'
 # DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'fastmri_brain_multicoil.csv'))
 DATASHEET_PATH = '/home/hpc/iwi5/iwi5325h/my-spicer/dataset'
-DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'filtered_0_fastmri_brain_multicoil.csv'))
+DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'filtered_multicoil_val.csv'))
 
 # 设置运行时临时缓存路径（中间输出）
 TMPDIR = os.environ.get("TMPDIR", f"/tmp/{os.environ.get('USER', 'user')}")
