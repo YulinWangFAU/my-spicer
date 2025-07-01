@@ -198,46 +198,47 @@ def val(epoch):
         torch.save(model.state_dict(), os.path.join(save_root, f"N2N_{epoch:03d}.pth"))
 
 # 主训练循环
-for epoch in range(start_epoch, epoch_number):
-    train(epoch)
-    val(epoch)
-    save_checkpoint({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'train_loss_log': train_loss_log,
-        'val_loss_log': val_loss_log,
-        'train_psnr_log': train_psnr_log,
-        'val_psnr_log': val_psnr_log,
-        'train_ssim_log': train_ssim_log,
-        'val_ssim_log': val_ssim_log,
-    }, os.path.join(save_root, "checkpoint_last.pth"))
+if __name__ == "__main__":
+    for epoch in range(start_epoch, epoch_number):
+        train(epoch)
+        val(epoch)
+        save_checkpoint({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'train_loss_log': train_loss_log,
+            'val_loss_log': val_loss_log,
+            'train_psnr_log': train_psnr_log,
+            'val_psnr_log': val_psnr_log,
+            'train_ssim_log': train_ssim_log,
+            'val_ssim_log': val_ssim_log,
+        }, os.path.join(save_root, "checkpoint_last.pth"))
 
-    # 保存 best model
-    if val_psnr_log[-1] == max(val_psnr_log):
-        best_model_state = model.state_dict()
-        torch.save(best_model_state, os.path.join(save_root, "best_model.pth"))
+        # 保存 best model
+        if val_psnr_log[-1] == max(val_psnr_log):
+            best_model_state = model.state_dict()
+            torch.save(best_model_state, os.path.join(save_root, "best_model.pth"))
 
-    # Early stopping 检查
-    early_stopper(val_psnr_log[-1], epoch)
-    if early_stopper.early_stop:
-        print(f"⛔️ Early stopping triggered at epoch {epoch}, best epoch was {early_stopper.best_epoch}")
-        break
+        # Early stopping 检查
+        early_stopper(val_psnr_log[-1], epoch)
+        if early_stopper.early_stop:
+            print(f"⛔️ Early stopping triggered at epoch {epoch}, best epoch was {early_stopper.best_epoch}")
+            break
 
-# 训练完成后保存曲线图
-plt.figure(figsize=(12, 4))
-plt.subplot(1, 3, 1); plt.plot(train_loss_log, label='Train'); plt.plot(val_loss_log, label='Val'); plt.title("Loss"); plt.legend(); plt.grid()
-plt.subplot(1, 3, 2); plt.plot(train_psnr_log, label='Train'); plt.plot(val_psnr_log, label='Val'); plt.title("PSNR"); plt.legend(); plt.grid()
-plt.subplot(1, 3, 3); plt.plot(train_ssim_log, label='Train'); plt.plot(val_ssim_log, label='Val'); plt.title("SSIM"); plt.legend(); plt.grid()
-plt.tight_layout()
-plt.savefig(os.path.join(save_root, "training_curves.png"))
+    # 训练完成后保存曲线图
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 3, 1); plt.plot(train_loss_log, label='Train'); plt.plot(val_loss_log, label='Val'); plt.title("Loss"); plt.legend(); plt.grid()
+    plt.subplot(1, 3, 2); plt.plot(train_psnr_log, label='Train'); plt.plot(val_psnr_log, label='Val'); plt.title("PSNR"); plt.legend(); plt.grid()
+    plt.subplot(1, 3, 3); plt.plot(train_ssim_log, label='Train'); plt.plot(val_ssim_log, label='Val'); plt.title("SSIM"); plt.legend(); plt.grid()
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_root, "training_curves.png"))
 
-# 自动备份模型与图像
-print("\n✅ 拷贝模型与图像到:", save_root_final)
-os.makedirs(save_root_final, exist_ok=True)
-for file in os.listdir(save_root):
-    src = os.path.join(save_root, file)
-    dst = os.path.join(save_root_final, file)
-    if not os.path.exists(dst):
-        os.system(f"cp -r {src} {dst}")
-print("✅ 模型与图像已复制完毕 ✅")
+    # 自动备份模型与图像
+    print("\n✅ 拷贝模型与图像到:", save_root_final)
+    os.makedirs(save_root_final, exist_ok=True)
+    for file in os.listdir(save_root):
+        src = os.path.join(save_root, file)
+        dst = os.path.join(save_root_final, file)
+        if not os.path.exists(dst):
+            os.system(f"cp -r {src} {dst}")
+    print("✅ 模型与图像已复制完毕 ✅")
