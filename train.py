@@ -1,5 +1,6 @@
 import os
 import pathlib
+import argparse
 from argparse import ArgumentParser
 import torch
 from torch.nn import functional as F
@@ -36,7 +37,7 @@ timestamp = now.strftime("%d-%b-%Y-%H-%M-%S")
 # 模型保存路径
 model_name = 'SPICER_fastmri'
 save_root_tmp = os.path.join(TMPDIR, "spicer_out", f"{model_name}_{timestamp}")
-save_root_final = os.path.join(HOME, "spicer_outputs", model_name)
+save_root_final = os.path.join(HOME, "spicer_outputs", f"{model_name}_{timestamp}")
 os.makedirs(save_root_tmp, exist_ok=True)
 os.makedirs(save_root_final, exist_ok=True)
 save_root = save_root_tmp
@@ -50,13 +51,42 @@ writer = SummaryWriter(log_dir=log_dir)
 def save_checkpoint(state, filename):
     torch.save(state, filename)
 
+# EarlyStopping 类
+class EarlyStopping:
+    def __init__(self, patience=10, verbose=False):
+        self.patience = patience
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.verbose = verbose
+
+    def __call__(self, val_score):
+        if self.best_score is None:
+            self.best_score = val_score
+        elif val_score < self.best_score:
+            self.counter += 1
+            if self.verbose:
+                print(f"EarlyStopping counter: {self.counter} / {self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = val_score
+            self.counter = 0
+
+# Argument parser
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=200, help='Number of training epochs')
+    parser.add_argument('--patience', type=int, default=20, help='Early stopping patience')
+    return parser.parse_args()
+
+args = parse_args()
+epoch_number = args.epochs
+patience = args.patience
+
 # 模型与优化器初始化
 model = SPNet(num_cascades=6, pools=4, chans=18, sens_pools=4, sens_chans=8).to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=0.0)
-
-# 训练参数
-epoch_number = 200
-acceleration_factor = 8
 snr_best = []
 
 # 日志变量
@@ -80,12 +110,15 @@ if os.path.exists(resume_path):
     train_ssim_log = checkpoint['train_ssim_log']
     val_ssim_log = checkpoint['val_ssim_log']
 
+# 初始化 early stopping
+early_stopper = EarlyStopping(patience=patience, verbose=True)
+
 # 数据集加载
-dataset = RealMeasurement(idx_list=range(0, 695), acceleration_rate=acceleration_factor,
+dataset = RealMeasurement(idx_list=range(0, 695), acceleration_rate=8,
                           is_return_y_smps_hat=True, mask_pattern='uniformly_cartesian', smps_hat_method='eps')
 trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
 
-val_dataset = RealMeasurement(idx_list=range(695, 714), acceleration_rate=acceleration_factor,
+val_dataset = RealMeasurement(idx_list=range(695, 714), acceleration_rate=8,
                               is_return_y_smps_hat=True, mask_pattern='uniformly_cartesian', smps_hat_method='eps')
 valloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 
@@ -100,7 +133,7 @@ def train(epoch):
         y_m = y * mask_m
         y_n = y * mask_n
         ny = y_m.shape[-2]
-        ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / acceleration_factor)) // 2)) * 2
+        ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / 8)) // 2)) * 2
 
         output_m, smap_m = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
         output_n, smap_n = model(torch.view_as_real(y_n), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
@@ -142,7 +175,7 @@ def val(epoch):
             y_m = y_input.to(device)
             mask_m = mask_input.byte().to(device)
             ny = y_m.shape[-2]
-            ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / acceleration_factor)) // 2)) * 2
+            ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / 8)) // 2)) * 2
             output_m, _ = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
             output_show = normlize(complex_abs(output_m.cpu().detach().squeeze()))
             target_show = normlize(torch.abs(dicom.squeeze()))
@@ -173,6 +206,12 @@ for epoch in range(start_epoch, epoch_number):
         'val_ssim_log': val_ssim_log,
     }, os.path.join(save_root, "checkpoint_last.pth"))
 
+    # Early stopping 检查
+    early_stopper(val_psnr_log[-1])
+    if early_stopper.early_stop:
+        print("⛔️ Early stopping triggered at epoch", epoch)
+        break
+
 # 训练完成后保存曲线图
 plt.figure(figsize=(12, 4))
 plt.subplot(1, 3, 1); plt.plot(train_loss_log); plt.title("Train Loss"); plt.grid()
@@ -180,4 +219,13 @@ plt.subplot(1, 3, 2); plt.plot(train_psnr_log, label='Train'); plt.plot(val_psnr
 plt.subplot(1, 3, 3); plt.plot(train_ssim_log, label='Train'); plt.plot(val_ssim_log, label='Val'); plt.title("SSIM"); plt.legend(); plt.grid()
 plt.tight_layout()
 plt.savefig(os.path.join(save_root, "training_curves.png"))
-print("\n✅ 模型训练与保存完成，图像与模型保存在:", save_root_final)
+
+# 自动备份模型与图像
+print("\n✅ 拷贝模型与图像到:", save_root_final)
+os.makedirs(save_root_final, exist_ok=True)
+for file in os.listdir(save_root):
+    src = os.path.join(save_root, file)
+    dst = os.path.join(save_root_final, file)
+    if not os.path.exists(dst):
+        os.system(f"cp -r {src} {dst}")
+print("✅ 模型与图像已复制完毕 ✅")
