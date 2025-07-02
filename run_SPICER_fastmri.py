@@ -178,7 +178,7 @@ if __name__ == "__main__":
 
 
     dataset = RealMeasurement(
-        idx_list=range(0, 694),
+        idx_list=range(0, 693),
         #idx_list=range(564, 1355),
         #idx_list=[1235,1237,1238,1243,1244,1245],
         #idx_list=[1235],
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
 
     val_dataset = RealMeasurement(
-        idx_list=range(694, 713),
+        idx_list=range(693, 712),
         #idx_list=range(1355,1377),
         #idx_list=[1355, 1359],
         #idx_list=[1355],
