@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 # 设置数据路径（fastMRI 和 CSV）
 #### ROOT_PATH is where the fastmri dataset stored ####
 # ROOT_PATH = './dataset/fastmri_brain_multicoil/'
-ROOT_PATH = '/home/vault/iwi5/iwi5325h/fastmri_brain_multicoil/multicoil_val'
+ROOT_PATH = '/home/vault/iwi5/iwi5325h/multicoil_val'
 
 #### DATASHEET_PATH is where the CSV datasheet stored ####
 # DATASHEET_PATH = './dataset/'
