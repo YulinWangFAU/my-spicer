@@ -131,6 +131,7 @@ def train(epoch):
     psnrs, losses, ssims = [], [], []
     for samples in tqdm(trainloader, desc=f"Train [{epoch:03d}]"):
         x_hat, smps_hat, y, mask_m, mask_n = samples
+        x_hat = x_hat.to(device)  # ✅ 添加这一行
         mask_m = mask_m.byte().to(device)
         mask_n = mask_n.byte().to(device)
         y = y.to(device)
@@ -176,6 +177,7 @@ def val(epoch):
     with torch.no_grad():
         for samples in valloader:
             dicom, x0, y_input, smps_input, mask_input = samples
+            dicom = dicom.to(device)  # ✅ 添加这一行
             y_m = y_input.to(device)
             mask_m = mask_input.byte().to(device)
             ny = y_m.shape[-2]
