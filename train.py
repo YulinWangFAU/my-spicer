@@ -130,7 +130,8 @@ valloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 def train(epoch):
     model.train()
     psnrs, losses, ssims = [], [], []
-    for samples in tqdm(trainloader, desc=f"Train [{epoch:03d}]"):
+    for iteration, samples in enumerate(tqdm(trainloader, desc=f"Train [{epoch:03d}]")):
+    #for samples in tqdm(trainloader, desc=f"Train [{epoch:03d}]"):
         x_hat, smps_hat, y, mask_m, mask_n = samples
         x_hat = x_hat.to(device)  # ✅ 添加这一行
         mask_m = mask_m.byte().to(device)
@@ -138,11 +139,19 @@ def train(epoch):
         y = y.to(device)
         y_m = y * mask_m
         y_n = y * mask_n
+
+        # ✅ 加在这里：只打印第一个 batch 的维度调试信息
+        if iteration == 0:
+            print(f"[Debug] y_m shape: {y_m.shape}")
+            print(f"[Debug] view_as_real(y_m) shape: {torch.view_as_real(y_m).shape}")
+
         ny = y_m.shape[-2]
         ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / 8)) // 2)) * 2
 
-        output_m, smap_m = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
-        output_n, smap_n = model(torch.view_as_real(y_n), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
+        output_m, smap_m = model(torch.view_as_real(y_m.squeeze(1)), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
+        output_n, smap_n = model(torch.view_as_real(y_n.squeeze(1)), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
+        #output_m, smap_m = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
+        #output_n, smap_n = model(torch.view_as_real(y_n), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
         smap_m_1 = torch.view_as_complex(smap_m.squeeze())
         smap_n_1 = torch.view_as_complex(smap_n.squeeze())
         h_output_n = fmult(torch.view_as_complex(output_m), smap_m_1, mask_n)
@@ -176,14 +185,23 @@ def val(epoch):
     model.eval()
     psnrs, ssims, losses = [], [], []
     with torch.no_grad():
-        for samples in valloader:
+        for iteration, samples in enumerate(valloader):
+        #for samples in valloader:
             dicom, x0, y_input, smps_input, mask_input = samples
             dicom = dicom.to(device)  # ✅ 添加这一行
             y_m = y_input.to(device)
             mask_m = mask_input.byte().to(device)
+
+            # ✅ 在第一步打印调试信息
+            if iteration == 0:
+                print(f"[Debug] y_m.shape = {y_m.shape}")  # e.g., [1, 16, 640, 368]
+                print(f"[Debug] view_as_real(y_m.squeeze(1)).shape = {torch.view_as_real(y_m.squeeze(1)).shape}")  # e.g., [1, 16, 640, 368, 2]
+
             ny = y_m.shape[-2]
             ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / 8)) // 2)) * 2
-            output_m, _ = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
+
+            output_m, _ = model(torch.view_as_real(y_m.squeeze(1)), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
+            #output_m, _ = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
             output_show = normlize(complex_abs(output_m.cpu().detach().squeeze()))
             target_show = normlize(torch.abs(dicom.squeeze()))
             psnrs.append(compare_psnr(output_show, target_show))
