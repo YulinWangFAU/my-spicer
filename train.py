@@ -1,4 +1,5 @@
 import os
+os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 import pathlib
 import argparse
 from argparse import ArgumentParser
@@ -25,7 +26,7 @@ HOME = os.path.expanduser("~")
 
 os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
 os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
-os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
+
 
 # GPU 设置
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
