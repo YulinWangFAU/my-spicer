@@ -237,6 +237,8 @@ def load_real_dataset_handle(
             mask = np.expand_dims(mask, 0)  # add batch dimension
             mask = torch.from_numpy(mask)
 
+            if os.path.exists(mask_h5):
+                os.remove(mask_h5)
             with h5py.File(mask_h5, 'w') as f:
                 f.create_dataset(name='mask', data=mask)
 
@@ -269,6 +271,8 @@ def load_real_dataset_handle(
                 tmp = cupy.asnumpy(tmp)
                 smps_hat[i] = tmp
 
+            if os.path.exists(smps_hat_h5):
+                os.remove(smps_hat_h5)
             with h5py.File(smps_hat_h5, 'w') as f:
                 f.create_dataset(name='smps_hat', data=smps_hat)
 
@@ -290,6 +294,8 @@ def load_real_dataset_handle(
             mask = torch.from_numpy(mask)
         x_hat = ftran(y, smps_hat, mask)
 
+        if os.path.exists(x_hat_h5):
+            os.remove(x_hat_h5)
         with h5py.File(x_hat_h5, 'w') as f:
             f.create_dataset(name='x_hat', data=x_hat)
 
