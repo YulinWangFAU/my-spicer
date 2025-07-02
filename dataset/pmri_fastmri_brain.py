@@ -167,8 +167,8 @@ def addwgn(x: torch.Tensor, input_snr):
 
 
 def check_and_mkdir(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+    #if not os.path.exists(path):
+    os.makedirs(path, exist_ok=True)
 
 
 def np_normalize_to_uint8(x):
