@@ -215,6 +215,7 @@ def load_real_dataset_handle(
     check_and_mkdir(mask_path)
 
     mask_h5 = os.path.join(mask_path, INDEX2FILE(idx) + '.h5')
+    print("Loading mask file:", mask_h5, flush=True)  # ✅ 加这一行
 
     if not os.path.exists(x_hat_h5):
 
