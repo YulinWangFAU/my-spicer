@@ -10,13 +10,13 @@ from torch.utils.data import Dataset
 # 设置数据路径（fastMRI 和 CSV）
 #### ROOT_PATH is where the fastmri dataset stored ####
 # ROOT_PATH = './dataset/fastmri_brain_multicoil/'
-ROOT_PATH = '/home/vault/iwi5/iwi5325h/multicoil_val'
+ROOT_PATH = '/home/woody/iwi5/iwi5325h/fastmri_brain_multicoil/multicoil_val'
 
 #### DATASHEET_PATH is where the CSV datasheet stored ####
 # DATASHEET_PATH = './dataset/'
 # DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'fastmri_brain_multicoil.csv'))
 DATASHEET_PATH = '/home/hpc/iwi5/iwi5325h/my-spicer/dataset'
-DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'filtered_multicoil_val.csv'))
+DATASHEET = pandas.read_csv(os.path.join(DATASHEET_PATH, 'matched_fastmri_filtered_val_0.csv'))
 
 # 设置运行时临时缓存路径（中间输出）
 TMPDIR = os.environ.get("TMPDIR", f"/tmp/{os.environ.get('USER', 'user')}")
