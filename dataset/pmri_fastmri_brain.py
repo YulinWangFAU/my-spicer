@@ -349,7 +349,7 @@ class RealMeasurement(Dataset):
 
             ret = load_real_dataset_handle(
                 idx,
-                1,
+                8,
                 is_return_y_smps_hat,
                 mask_pattern,
                 smps_hat_method
@@ -367,7 +367,7 @@ class RealMeasurement(Dataset):
                 slice_end = INDEX2SLICE_END(idx)
             else:
                 #slice_end = num_slice - 5
-                slice_end = num_slice - 10
+                slice_end = num_slice - 5
             print(f"[IDX {idx}] x_hat shape: {num_slice}, slice_start={slice_start}, slice_end={slice_end}")
 
             for s in range(slice_start, slice_end):
