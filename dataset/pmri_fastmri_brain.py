@@ -188,6 +188,7 @@ def load_real_dataset_handle(
         mask_pattern: str = 'uniformly_cartesian',
         smps_hat_method: str = 'eps',
 ):
+    print(f"[DEBUG] 🚀 Starting load_real_dataset_handle with idx={idx}", flush=True)
     #root_path = os.path.join(ROOT_PATH, 'real')
     TMPDIR = os.environ.get("TMPDIR", f"/tmp/{os.environ.get('USER', 'user')}")
     REAL_OUTPUT_ROOT = os.path.join(TMPDIR, "spicer_tmp", "real")
@@ -196,7 +197,15 @@ def load_real_dataset_handle(
     check_and_mkdir(root_path)
 
     y_h5 = os.path.join(ROOT_PATH, INDEX2FILE(idx) + '.h5')
+    print(f"[DEBUG] Trying to open k-space file: {y_h5}", flush=True)
 
+    # ✅ Debug：尝试打开主 .h5 文件，如果失败就立即抛出具体原因
+    try:
+        with h5py.File(y_h5, 'r') as f:
+            print(f"[DEBUG] ✅ Successfully opened: {y_h5}", flush=True)
+    except Exception as e:
+        print(f"[ERROR] ❌ Failed to open {y_h5}: {e}", flush=True)
+        raise e
     meas_path = os.path.join(root_path, "acceleration_rate_%d_smps_hat_method_%s" % (
         acceleration_rate, smps_hat_method))
     check_and_mkdir(meas_path)
@@ -225,6 +234,7 @@ def load_real_dataset_handle(
             # Normalize the kspace to 0-1 region
             for i in range(y.shape[0]):
                 y[i] /= np.amax(np.abs(y[i]))
+        print(f"[DEBUG] 🌀 Generating mask and saving to: {mask_h5}", flush=True)
 
         if not os.path.exists(mask_h5):
 
@@ -247,7 +257,7 @@ def load_real_dataset_handle(
 
             with h5py.File(mask_h5, 'r') as f:
                 mask = f['mask'][:]
-
+        print(f"[DEBUG] 🔧 Generating smps_hat and saving to: {smps_hat_h5}", flush=True)
         if not os.path.exists(smps_hat_h5):
 
             #os.environ['CUPY_CACHE_DIR'] = '/tmp/cupy'
@@ -327,7 +337,8 @@ class RealMeasurement(Dataset):
             mask_pattern: str = 'uniformly_cartesian',
             smps_hat_method: str = 'eps',
     ):
-
+        print(f"[DEBUG] 🧩 Initializing RealMeasurement with {len(idx_list)} samples", flush=True)
+        self.idx_list = idx_list
         self.__index_maps = []
         for idx in idx_list:
             if INDEX2DROP(idx):
