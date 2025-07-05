@@ -238,14 +238,14 @@ def load_real_dataset_handle(
 
         if not os.path.exists(mask_h5):
 
-            _, num_coils, n_x, n_y = y.shape
+            _, _, n_x, n_y = y.shape
             if acceleration_rate > 1:
-                mask_2d = _mask_fn[mask_pattern]((n_x, n_y), acceleration_rate)
-            else:
-                mask_2d = np.ones((n_x, n_y), dtype=np.float32)
+                mask = _mask_fn[mask_pattern]((n_x, n_y), acceleration_rate)
 
-            # 正确广播到每个 coil（变成和 y[i] 同样的形状）
-            mask = np.broadcast_to(mask_2d, (num_coils, n_x, n_y)).astype(np.float32)
+            else:
+                mask = np.ones(shape=(n_x, n_y), dtype=np.float32)
+
+            mask = np.expand_dims(mask, 0)  # add batch dimension
             mask = torch.from_numpy(mask)
 
 
