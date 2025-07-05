@@ -255,7 +255,7 @@ def load_real_dataset_handle(
                 f.create_dataset(name='mask', data=mask)
 
         else:
-
+            print(f"Opening mask file: {mask_h5}")
             with h5py.File(mask_h5, 'r') as f:
                 mask = f['mask'][:]
         print(f"[DEBUG] 🔧 Generating smps_hat and saving to: {smps_hat_h5}", flush=True)
@@ -350,7 +350,7 @@ class RealMeasurement(Dataset):
 
             ret = load_real_dataset_handle(
                 idx,
-                8,
+                1,
                 is_return_y_smps_hat,
                 mask_pattern,
                 smps_hat_method
