@@ -5,6 +5,9 @@ import torch.nn.functional as f
 
 
 def compare_mse(img_test, img_true, size_average=True):
+
+    img_test = img_test.cpu()
+    img_true = img_true.cpu()
     img_diff = img_test - img_true
     img_diff = img_diff ** 2
 

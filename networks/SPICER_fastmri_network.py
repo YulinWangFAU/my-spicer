@@ -264,6 +264,7 @@ class SPNetBlock(nn.Module):
     ) -> torch.Tensor:
         zero = torch.zeros(1, 1, 1, 1, 1).to(current_kspace)
         mask = torch.stack([mask, mask], dim=-1)
+        mask = mask.bool()
         dc = torch.where(mask, current_kspace - ref_kspace, zero)
         output_image = self.model(transpose_operator(current_kspace, sens_maps, mask))
         regularization = grad_g_operator(output_image, smap=sens_maps, mask=mask)
