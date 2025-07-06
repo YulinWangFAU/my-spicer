@@ -179,6 +179,9 @@ def np_normalize_to_uint8(x):
     x = x.astype(np.uint8)
 
     return x
+#只让主任务显示进度条，SLURM_PROCID是 Slurm 环境变量，在你运行 srun 多个任务（比如 --ntasks=4）
+def is_main_process():
+    return int(os.environ.get("SLURM_PROCID", 0)) == 0
 
 
 def load_real_dataset_handle(
@@ -187,7 +190,9 @@ def load_real_dataset_handle(
         is_return_y_smps_hat: bool = False,
         mask_pattern: str = 'uniformly_cartesian',
         smps_hat_method: str = 'eps',
+        retry_count: int = 0,
 ):
+    MAX_RETRY = 3
     print(f"[DEBUG] 🚀 Starting load_real_dataset_handle with idx={idx}", flush=True)
     #root_path = os.path.join(ROOT_PATH, 'real')
     TMPDIR = os.environ.get("TMPDIR", f"/tmp/{os.environ.get('USER', 'user')}")
@@ -225,7 +230,19 @@ def load_real_dataset_handle(
 
     mask_h5 = os.path.join(mask_path, INDEX2FILE(idx) + '.h5')
     print("Loading mask file:", mask_h5, flush=True)  # ✅ 加这一行
-
+    # ✅ [新增] 检查 x_hat 是否损坏
+    if os.path.exists(x_hat_h5):
+        try:
+            with h5py.File(x_hat_h5, 'r') as f:
+                _ = f['x_hat'][:]
+        except Exception as e:
+            print(f"[⚠️ 读取 x_hat 失败，将删除重建]: {x_hat_h5}", flush=True)
+            os.remove(x_hat_h5)
+            if retry_count < MAX_RETRY:
+                return load_real_dataset_handle(idx, acceleration_rate, is_return_y_smps_hat,
+                                                mask_pattern, smps_hat_method, retry_count + 1)
+            else:
+                raise RuntimeError(f"[❌] x_hat 生成失败多次，终止 idx={idx}")
     if not os.path.exists(x_hat_h5):
 
         with h5py.File(y_h5, 'r') as f:
@@ -236,6 +253,13 @@ def load_real_dataset_handle(
                 y[i] /= np.amax(np.abs(y[i]))
         print(f"[DEBUG] 🌀 Generating mask and saving to: {mask_h5}", flush=True)
 
+        if os.path.exists(mask_h5):
+            try:
+                with h5py.File(mask_h5, 'r') as f:
+                    _ = f['mask'][:]
+            except Exception as e:
+                print(f"[⚠️ 读取 mask 失败，将删除重建]: {mask_h5}", flush=True)
+                os.remove(mask_h5)
         if not os.path.exists(mask_h5):
 
             _, _, n_x, n_y = y.shape
@@ -259,8 +283,16 @@ def load_real_dataset_handle(
             with h5py.File(mask_h5, 'r') as f:
                 mask = f['mask'][:]
         print(f"[DEBUG] 🔧 Generating smps_hat and saving to: {smps_hat_h5}", flush=True)
+        if os.path.exists(smps_hat_h5):
+            try:
+                with h5py.File(smps_hat_h5, 'r') as f:
+                    _ = f['smps_hat'][:]
+            except Exception as e:
+                print(f"[⚠️ 读取 smps_hat 失败，将删除重建]: {smps_hat_h5}", flush=True)
+                os.remove(smps_hat_h5)
+                return load_real_dataset_handle(idx, acceleration_rate, is_return_y_smps_hat, mask_pattern,
+                                                smps_hat_method)
         if not os.path.exists(smps_hat_h5):
-
             #os.environ['CUPY_CACHE_DIR'] = '/tmp/cupy'
             #os.environ['NUMBA_CACHE_DIR'] = '/tmp/numba'
             os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
@@ -271,7 +303,7 @@ def load_real_dataset_handle(
 
             num_slice = y.shape[0]
             iter_ = tqdm.tqdm(range(num_slice), desc='[%d, %s] Generating coil sensitivity map (smps_hat)' % (
-                idx, INDEX2FILE(idx)))
+                idx, INDEX2FILE(idx)), disable=not is_main_process())
 
             smps_hat = np.zeros_like(y)
             for i in iter_:
@@ -367,7 +399,6 @@ class RealMeasurement(Dataset):
             if INDEX2SLICE_END(idx) is not None:
                 slice_end = INDEX2SLICE_END(idx)
             else:
-                #slice_end = num_slice - 5
                 slice_end = num_slice - 5
             print(f"[IDX {idx}] x_hat shape: {num_slice}, slice_start={slice_start}, slice_end={slice_end}")
 
