@@ -209,8 +209,8 @@ def val(epoch):
 
             output_m, _ = model(torch.view_as_real(y_m.squeeze(1)), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
             #output_m, _ = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
-            output_show = normlize(complex_abs(output_m.cpu().detach().squeeze()))
-            target_show = normlize(torch.abs(dicom.squeeze()))
+            output_show = normlize(complex_abs(output_m.cpu().detach().squeeze())).to(device)
+            target_show = normlize(torch.abs(dicom.squeeze())).to(device)
             psnrs.append(compare_psnr(output_show, target_show).cpu())
             ssims.append(compare_ssim(output_show[None, None], target_show[None, None]).cpu())
             losses.append(F.mse_loss(output_show, target_show).item())
