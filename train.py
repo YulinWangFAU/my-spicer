@@ -26,10 +26,16 @@ HOME = os.path.expanduser("~")
 
 os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
 os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
-
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+torch.cuda.empty_cache()
 
 # GPU 设置
-device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
+#device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+local_rank = int(os.environ.get("SLURM_PROCID", 0))
+device = f'cuda:{local_rank % torch.cuda.device_count()}'
+print(f"🧠 Using device: {device}")
+
 
 # 当前时间戳
 now = datetime.now()
