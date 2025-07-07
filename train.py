@@ -168,7 +168,8 @@ def train(epoch):
         output_show = complex_abs(output_m.cpu().detach().squeeze())
         output_show = normlize(output_show)
         target_show = normlize(torch.abs(x_hat.squeeze()))
-
+        output_show = output_show.to(device)
+        target_show = target_show.to(device)
         psnrs.append(compare_psnr(output_show, target_show))
         ssims.append(compare_ssim(output_show[None, None], target_show[None, None]))
         losses.append(loss.item())
