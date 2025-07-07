@@ -176,8 +176,8 @@ def train(epoch):
         target_show = normlize(torch.abs(x_hat.squeeze()))
         output_show = output_show.to(device)
         target_show = target_show.to(device)
-        psnrs.append(compare_psnr(output_show, target_show))
-        ssims.append(compare_ssim(output_show[None, None], target_show[None, None]))
+        psnrs.append(compare_psnr(output_show, target_show).cpu())
+        ssims.append(compare_ssim(output_show[None, None], target_show[None, None]).cpu())
         losses.append(loss.item())
 
     train_loss_log.append(np.mean(losses))
@@ -211,8 +211,8 @@ def val(epoch):
             #output_m, _ = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
             output_show = normlize(complex_abs(output_m.cpu().detach().squeeze()))
             target_show = normlize(torch.abs(dicom.squeeze()))
-            psnrs.append(compare_psnr(output_show, target_show))
-            ssims.append(compare_ssim(output_show[None, None], target_show[None, None]))
+            psnrs.append(compare_psnr(output_show, target_show).cpu())
+            ssims.append(compare_ssim(output_show[None, None], target_show[None, None]).cpu())
             losses.append(F.mse_loss(output_show, target_show).item())
 
     val_psnr_log.append(np.mean(psnrs))
