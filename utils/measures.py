@@ -6,8 +6,8 @@ import torch.nn.functional as f
 
 def compare_mse(img_test, img_true, size_average=True):
 
-    img_test = img_test.cpu()
-    img_true = img_true.cpu()
+    #img_test = img_test.cpu()
+    #img_true = img_true.cpu()
     img_diff = img_test - img_true
     img_diff = img_diff ** 2
 
@@ -82,6 +82,8 @@ def create_window(window_size, channel):
 
 
 def _ssim(img1, img2, window, window_size, channel, size_average=True):
+    # ⚠️ 确保 window 与输入图像在同一个 device 上
+    window = window.to(img1.device)
     mu1 = f.conv2d(img1, window, padding=window_size // 2, groups=channel)
     mu2 = f.conv2d(img2, window, padding=window_size // 2, groups=channel)
 
@@ -166,8 +168,8 @@ def compare_rpsnr(img_test, img_true, size_average=True):
 
     c = torch.matmul(torch.inverse(a), b)
     if img_true.is_cuda:
-        c = c.cuda()
-
+        #c = c.cuda()
+        c = c.to(img_true.device)
     rsnr = compare_psnr(img_test, c[0] * img_true + c[1], size_average=True)
 
     return rsnr
