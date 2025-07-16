@@ -25,6 +25,7 @@ from utils.loss_functions import gradient_loss
 from utils.measures import compare_psnr, compare_ssim
 from utils.early_stopping import EarlyStopping
 
+print(f"MASTER_PORT used: {os.environ.get('MASTER_PORT')}")
 # ==== DDP 初始化 ====
 def setup_ddp():
     dist.init_process_group(backend='nccl')
