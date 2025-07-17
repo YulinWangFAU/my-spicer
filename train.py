@@ -19,6 +19,7 @@ from utils.loss_functions import gradient_loss
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 import shutil
+import pandas as pd
 # ========== HPC 环境设置 ==========
 user = os.environ.get("USER", "unknown_user")
 TMPDIR = os.environ.get("TMPDIR", f"/tmp/{user}")
@@ -184,9 +185,9 @@ def train(epoch):
     train_psnr_log.append(np.mean(psnrs))
     train_ssim_log.append(np.mean(ssims))
 
-    writer.add_scalar("Loss/Train", train_loss_log[-1], epoch)
-    writer.add_scalar("PSNR/Train", train_psnr_log[-1], epoch)
-    writer.add_scalar("SSIM/Train", train_ssim_log[-1], epoch)
+    writer.add_scalars("Loss", {"Train": train_loss_log[-1]}, epoch)
+    writer.add_scalars("PSNR", {"Train": train_psnr_log[-1]}, epoch)
+    writer.add_scalars("SSIM", {"Train": train_ssim_log[-1]}, epoch)
 
 def val(epoch):
     model.eval()
@@ -218,9 +219,9 @@ def val(epoch):
     val_psnr_log.append(np.mean(psnrs))
     val_ssim_log.append(np.mean(ssims))
     val_loss_log.append(np.mean(losses))
-    writer.add_scalar("PSNR/Val", val_psnr_log[-1], epoch)
-    writer.add_scalar("SSIM/Val", val_ssim_log[-1], epoch)
-    writer.add_scalar("Loss/Val", val_loss_log[-1], epoch)
+    writer.add_scalars("Loss", {"Val": val_loss_log[-1]}, epoch)
+    writer.add_scalars("PSNR", {"Val": val_psnr_log[-1]}, epoch)
+    writer.add_scalars("SSIM", {"Val": val_ssim_log[-1]}, epoch)
 
     if epoch % 5 == 0 or val_psnr_log[-1] >= max(val_psnr_log):
         torch.save(model.state_dict(), os.path.join(save_root, f"N2N_{epoch:03d}.pth"))
@@ -228,8 +229,12 @@ def val(epoch):
 # 主训练循环
 if __name__ == "__main__":
     for epoch in range(start_epoch, epoch_number):
+        print(f"\n🔁 Epoch {epoch}/{epoch_number} 开始")  # ✅ 打印 epoch 开始
         train(epoch)
+        print(f"✅ Train epoch {epoch} completed. Loss: {train_loss_log[-1]:.4e}")  # ✅ 打印 train 结果
         val(epoch)
+        print(f"✅ Val   epoch {epoch} completed. Loss: {val_loss_log[-1]:.4e}")  # ✅ 打印 val 结果
+        writer.flush()  # ✅ 强制写入 TensorBoard 日志
         save_checkpoint({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -270,3 +275,16 @@ if __name__ == "__main__":
         if not os.path.exists(dst):
             shutil.copy2(src, dst)  # 复制并保留时间戳
     print("✅ 模型与图像已复制完毕 ✅")
+
+    # 将指标保存为 CSV 文件
+    metrics_dict = {
+        'epoch': list(range(start_epoch, start_epoch + len(train_loss_log))),
+        'train_loss': train_loss_log,
+        'val_loss': val_loss_log,
+        'train_psnr': train_psnr_log,
+        'val_psnr': val_psnr_log,
+        'train_ssim': train_ssim_log,
+        'val_ssim': val_ssim_log,
+    }
+    df_metrics = pd.DataFrame(metrics_dict)
+    df_metrics.to_csv(os.path.join(save_root, "metrics.csv"), index=False)
