@@ -18,7 +18,7 @@ from dataset.pmri_fastmri_brain import fmult
 from utils.loss_functions import gradient_loss
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
-
+import shutil
 # ========== HPC 环境设置 ==========
 user = os.environ.get("USER", "unknown_user")
 TMPDIR = os.environ.get("TMPDIR", f"/tmp/{user}")
@@ -268,5 +268,5 @@ if __name__ == "__main__":
         src = os.path.join(save_root, file)
         dst = os.path.join(save_root_final, file)
         if not os.path.exists(dst):
-            os.system(f"cp -r {src} {dst}")
+            shutil.copy2(src, dst)  # 复制并保留时间戳
     print("✅ 模型与图像已复制完毕 ✅")
