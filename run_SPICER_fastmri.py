@@ -22,7 +22,7 @@ from utils.util import *
 from utils.measures import *
 from dataset.pmri_fastmri_brain import fmult, ftran
 from utils.loss_functions import gradient_loss, forward_operator
-from utils.early_stopping import EarlyStopping
+
 
 # if torch.cuda.is_available():
 #     device = 'cuda:2'
@@ -40,8 +40,7 @@ os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
 os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 
 # GPU 自动设置
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-n_gpus = torch.cuda.device_count()
+device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
 # 当前运行时间
 now = datetime.now()
