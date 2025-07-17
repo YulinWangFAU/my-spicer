@@ -126,11 +126,11 @@ if os.path.exists(resume_path):
 early_stopper = EarlyStopping(patience=patience, verbose=True)
 
 # 数据集加载
-dataset = RealMeasurement(idx_list=range(0, 40), acceleration_rate=8,
+dataset = RealMeasurement(idx_list=range(0, 80), acceleration_rate=8,
                           is_return_y_smps_hat=True, mask_pattern='uniformly_cartesian', smps_hat_method='eps')
 trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
 
-val_dataset = RealMeasurement(idx_list=range(40, 50), acceleration_rate=8,
+val_dataset = RealMeasurement(idx_list=range(80, 90), acceleration_rate=8,
                               is_return_y_smps_hat=True, mask_pattern='uniformly_cartesian', smps_hat_method='eps')
 valloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 
@@ -138,56 +138,61 @@ def train(epoch):
     model.train()
     psnrs, losses, ssims = [], [], []
     for iteration, samples in enumerate(tqdm(trainloader, desc=f"Train [{epoch:03d}]")):
-    #for samples in tqdm(trainloader, desc=f"Train [{epoch:03d}]"):
         x_hat, smps_hat, y, mask_m, mask_n = samples
-        x_hat = x_hat.to(device)  # ✅ 添加这一行
+        x_hat = x_hat.to(device)
         mask_m = mask_m.byte().to(device)
         mask_n = mask_n.byte().to(device)
         y = y.to(device)
         y_m = y * mask_m
         y_n = y * mask_n
 
-        # ✅ 加在这里：只打印第一个 batch 的维度调试信息
-        if iteration == 0:
-            print(f"[Debug] y_m shape: {y_m.shape}")
-            print(f"[Debug] view_as_real(y_m) shape: {torch.view_as_real(y_m).shape}")
+        # 判断是否 squeeze(1)（有些 loader 会加一维 channel=1）
+        if y_m.shape[1] == 1:
+            y_m_input = y_m.squeeze(1)
+            y_n_input = y_n.squeeze(1)
+        else:
+            y_m_input = y_m
+            y_n_input = y_n
 
         ny = y_m.shape[-2]
         ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / 8)) // 2)) * 2
 
-        output_m, smap_m = model(torch.view_as_real(y_m.squeeze(1)), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
-        output_n, smap_n = model(torch.view_as_real(y_n.squeeze(1)), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
-        #output_m, smap_m = model(torch.view_as_real(y_m), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
-        #output_n, smap_n = model(torch.view_as_real(y_n), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
+        output_m, smap_m = model(torch.view_as_real(y_m_input), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
+        output_n, smap_n = model(torch.view_as_real(y_n_input), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
+
         smap_m_1 = torch.view_as_complex(smap_m.squeeze())
         smap_n_1 = torch.view_as_complex(smap_n.squeeze())
+
         h_output_n = fmult(torch.view_as_complex(output_m), smap_m_1, mask_n)
         h_output_m = fmult(torch.view_as_complex(output_n), smap_n_1, mask_m)
 
-        loss = ((F.mse_loss(torch.view_as_real(h_output_m).float().squeeze(), torch.view_as_real(y_m).float().squeeze()) +
-                 F.mse_loss(torch.view_as_real(h_output_n).float().squeeze(), torch.view_as_real(y_n).float().squeeze())) / 2)
+        loss = (
+            F.mse_loss(torch.view_as_real(h_output_m).float(), torch.view_as_real(y_m).float()) +
+            F.mse_loss(torch.view_as_real(h_output_n).float(), torch.view_as_real(y_n).float())
+        ) / 2
         loss += 0.001 * gradient_loss(smap_m.squeeze().permute(0, 3, 1, 2))
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
+        # PSNR & SSIM
         output_show = complex_abs(output_m.cpu().detach().squeeze())
         output_show = normlize(output_show)
         target_show = normlize(torch.abs(x_hat.squeeze()))
-        output_show = output_show.to(device)
-        target_show = target_show.to(device)
-        psnrs.append(compare_psnr(output_show, target_show).cpu())
-        ssims.append(compare_ssim(output_show[None, None], target_show[None, None]).cpu())
+        psnrs.append(compare_psnr(output_show.to(device), target_show.to(device)).cpu())
+        ssims.append(compare_ssim(output_show[None, None].to(device), target_show[None, None].to(device)).cpu())
         losses.append(loss.item())
 
     train_loss_log.append(np.mean(losses))
     train_psnr_log.append(np.mean(psnrs))
     train_ssim_log.append(np.mean(ssims))
 
-    writer.add_scalars("Loss", {"Train": train_loss_log[-1]}, epoch)
-    writer.add_scalars("PSNR", {"Train": train_psnr_log[-1]}, epoch)
-    writer.add_scalars("SSIM", {"Train": train_ssim_log[-1]}, epoch)
+    writer.add_scalar("Loss_Train", train_loss_log[-1], epoch)
+    writer.add_scalar("PSNR_Train", train_psnr_log[-1], epoch)
+    writer.add_scalar("SSIM_Train", train_ssim_log[-1], epoch)
+    print(f"[Train Debug] Epoch {epoch} - Loss: {train_loss_log[-1]:.6f}")
+
 
 def val(epoch):
     model.eval()
@@ -219,9 +224,9 @@ def val(epoch):
     val_psnr_log.append(np.mean(psnrs))
     val_ssim_log.append(np.mean(ssims))
     val_loss_log.append(np.mean(losses))
-    writer.add_scalars("Loss", {"Val": val_loss_log[-1]}, epoch)
-    writer.add_scalars("PSNR", {"Val": val_psnr_log[-1]}, epoch)
-    writer.add_scalars("SSIM", {"Val": val_ssim_log[-1]}, epoch)
+    writer.add_scalar("Loss_Val", val_loss_log[-1], epoch)
+    writer.add_scalar("PSNR_Val", val_psnr_log[-1], epoch)
+    writer.add_scalar("SSIM_Val", val_ssim_log[-1], epoch)
 
     if epoch % 5 == 0 or val_psnr_log[-1] >= max(val_psnr_log):
         torch.save(model.state_dict(), os.path.join(save_root, f"N2N_{epoch:03d}.pth"))
