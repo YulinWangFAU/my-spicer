@@ -72,7 +72,7 @@ def val(model, valloader, save_dir="recon_results"):
 # ==== 主函数入口 ====
 if __name__ == "__main__":
     acceleration_factor = 8
-    model_path = "/home/vault/iwi5/iwi5325h/tmp_1113439/spicer_out/SPICER_fastmri_18-Jul-2025-00-48-48/N2N_050.pth"
+    model_path = "/home/vault/iwi5/iwi5325h/tmp_1113439/spicer_out/SPICER_fastmri_18-Jul-2025-15-18-45/N2N_050.pth"
 
     # === 验证集 ===
     val_dataset = RealMeasurement(
