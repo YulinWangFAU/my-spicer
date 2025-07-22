@@ -51,10 +51,11 @@ def val(model, valloader, save_dir="recon_results"):
         output_show = complex_abs(output_show)[0]
         target_show = torch.abs(x_hat.squeeze())
 
-        output_show = normlize(center_crop(output_show, [400, 320]))
-        target_show = normlize(center_crop(target_show, [400, 320]))
+        output_show = normlize(center_crop(output_show, [400, 320])).squeeze()
+        target_show = normlize(center_crop(target_show, [400, 320])).squeeze()
         error_map = np.abs(output_show.numpy() - target_show.numpy())
-
+        print(f"[Debug] output_show shape: {output_show.shape}")
+        print(f"[Debug] target_show shape: {target_show.shape}")
         # === 保存图像 ===
         plt.imsave(f"{save_dir}/recon_{iteration:03d}.png", output_show.numpy(), cmap='gray')
         plt.imsave(f"{save_dir}/gt_{iteration:03d}.png", target_show.numpy(), cmap='gray')
