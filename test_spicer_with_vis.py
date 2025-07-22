@@ -7,6 +7,8 @@ Created on 2025/7/18 15:07
 """
 
 import os
+
+import pandas as pd
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -73,7 +75,30 @@ def val(model, valloader, save_dir="recon_results"):
     print(f"✅ Val PSNR: {np.mean(psnr_list):.4f}")
     print(f"✅ Val SSIM: {np.mean(ssim_list):.4f}")
     print(f"✅ Val NMSE: {np.mean(nmse_list):.4f}")
+    # === 保存指标到 CSV ===
+    csv_path = os.path.join(save_dir, "metrics.csv")
+    df = pd.DataFrame({
+        "Sample": list(range(len(psnr_list))),
+        "PSNR": psnr_list,
+        "SSIM": ssim_list,
+        "NMSE": nmse_list
+    })
+    df.to_csv(csv_path, index=False)
 
+    # === 绘图 ===
+    def plot_metric(metric_list, name):
+        plt.figure()
+        plt.plot(metric_list, marker='o')
+        plt.title(f'{name} per Sample')
+        plt.xlabel('Sample')
+        plt.ylabel(name)
+        plt.grid(True)
+        plt.savefig(os.path.join(save_dir, f"{name.lower()}_curve.png"))
+        plt.close()
+
+    plot_metric(psnr_list, "PSNR")
+    plot_metric(ssim_list, "SSIM")
+    plot_metric(nmse_list, "NMSE")
 # ==== 主函数入口 ====
 if __name__ == "__main__":
     acceleration_factor = 8
