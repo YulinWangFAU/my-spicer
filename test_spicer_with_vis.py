@@ -63,7 +63,11 @@ def val(model, valloader, save_dir="recon_results"):
 
         # === 指标计算 ===
         psnr_list.append(compare_psnr(output_show, target_show))
-        ssim_list.append(compare_ssim(output_show.unsqueeze(0), target_show.unsqueeze(0).unsqueeze(0)))
+
+        output_ssim = output_show.unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+        target_ssim = target_show.unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+        ssim_list.append(compare_ssim(output_ssim, target_ssim))
+
         nmse_list.append(compare_nmse(output_show, target_show))
 
     print(f"✅ Val PSNR: {np.mean(psnr_list):.4f}")
