@@ -179,8 +179,8 @@ if __name__ == "__main__":
 
 
     dataset = RealMeasurement(
-        idx_list=range(0, 15),
-        #idx_list=range(564, 1355),
+        #idx_list=range(0, 15),
+        idx_list=range(564, 1355),
         #idx_list=[1235,1237,1238,1243,1244,1245],
         #idx_list=[1235],
         acceleration_rate=acceleration_factor,
@@ -191,8 +191,8 @@ if __name__ == "__main__":
     trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
 
     val_dataset = RealMeasurement(
-        idx_list=range(15, 20),
-        #idx_list=range(1355,1377),
+        #idx_list=range(15, 20),
+        idx_list=range(1355,1377),
         #idx_list=[1355, 1359],
         #idx_list=[1355],
         acceleration_rate=acceleration_factor,
@@ -209,13 +209,6 @@ if __name__ == "__main__":
         sens_pools=4,
         sens_chans=8,
     ).to(device)
-    # model = SPNet(
-    #     num_cascades=2,  # 原来是 6
-    #     pools=2,  # 原来是 4
-    #     chans=8,  # 原来是 18
-    #     sens_pools=2,
-    #     sens_chans=4,
-    # ).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=0.0)
     snr_best = []

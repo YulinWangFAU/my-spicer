@@ -126,11 +126,11 @@ if os.path.exists(resume_path):
 early_stopper = EarlyStopping(patience=patience, verbose=True)
 
 # 数据集加载
-dataset = RealMeasurement(idx_list=range(0, 80), acceleration_rate=8,
+dataset = RealMeasurement(idx_list=range(564, 1355), acceleration_rate=8,
                           is_return_y_smps_hat=True, mask_pattern='uniformly_cartesian', smps_hat_method='eps')
 trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
 
-val_dataset = RealMeasurement(idx_list=range(80, 90), acceleration_rate=8,
+val_dataset = RealMeasurement(idx_list=range(1355,1377), acceleration_rate=8,
                               is_return_y_smps_hat=True, mask_pattern='uniformly_cartesian', smps_hat_method='eps')
 valloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 

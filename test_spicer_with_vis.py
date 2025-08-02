@@ -106,7 +106,7 @@ if __name__ == "__main__":
 
     # === 验证集 ===
     val_dataset = RealMeasurement(
-        idx_list=range(80, 90),
+        idx_list=range(1355, 1377),
         acceleration_rate=acceleration_factor,
         is_return_y_smps_hat=True,
         mask_pattern='uniformly_cartesian',
