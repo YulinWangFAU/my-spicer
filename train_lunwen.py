@@ -142,13 +142,13 @@ train_idx = range(564, 694)   # 130 subjects
 val_idx   = range(694, 709)   # 15 subjects
 test_idx  = range(709, 729)   # 20 subjects
 # 数据集加载
-dataset = RealMeasurement(idx_list=train_idx, acceleration_rate=4,
+dataset = RealMeasurement(idx_list=train_idx, acceleration_rate=8,
                           is_return_y_smps_hat=True,
                           mask_pattern='uniformly_cartesian',
                           smps_hat_method='eps')
 trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
 
-val_dataset = RealMeasurement(idx_list=val_idx, acceleration_rate=4,
+val_dataset = RealMeasurement(idx_list=val_idx, acceleration_rate=8,
                               is_return_y_smps_hat=True,
                               mask_pattern='uniformly_cartesian',
                               smps_hat_method='eps')
