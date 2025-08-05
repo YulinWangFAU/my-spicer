@@ -109,7 +109,7 @@ def val(model, valloader, save_dir="recon_results"):
 # ==== 主函数入口 ====
 if __name__ == "__main__":
     acceleration_factor = 4
-    model_path = "/home/vault/iwi5/iwi5325h/tmp_1113439/spicer_out/SPICER_fastmri_18-Jul-2025-15-18-45/N2N_050.pth"
+    model_path = "/home/vault/iwi5/iwi5325h/tmp_1136551/spicer_out/SPICER_fastmri_03-Aug-2025-04-58-35/best_model.pth"
 
     test_dataset = RealMeasurement(
         idx_list=range(709, 729),  # 🔹 20 subjects
@@ -125,6 +125,21 @@ if __name__ == "__main__":
     test_state_dict = torch.load(model_path, map_location=device)
     model.load_state_dict(test_state_dict)
 
-    # === 验证并保存图像 ===
+    # ==== 构建保存目录 ====
+    output_root = "recon_results"  # 总输出目录
+    os.makedirs(output_root, exist_ok=True)
+
+    # 读取 SLURM JobID，如果本地运行则为 "nojob"
+    job_id = os.environ.get("SLURM_JOB_ID", "nojob")
+
+    save_dir = os.path.join(
+        output_root,
+        f"n2n_lunwen_job{job_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+    os.makedirs(save_dir, exist_ok=True)
+
+    # ==== 调用验证函数并打印保存路径 ====
     with torch.no_grad():
-        val(model, testloader, save_dir="recon_results_n2n_050")
+        val(model, testloader, save_dir=save_dir)
+
+    print(f"✅ Results saved to: {os.path.abspath(save_dir)}")
