@@ -47,7 +47,7 @@ INDEX2FILE = lambda idx: INDEX2_helper(idx, 'FILE')
 
 
 def INDEX2DROP(idx):
-    ret = INDEX2_helper(idx, 'DROP')
+    #ret = INDEX2_helper(idx, 'DROP')
 
     # #if ret in ['0', 'false', 'False', 0.0]:
     # if ret in ['', '0', 'false', 'none', 'nan']:  # 所有空/无效都视为 False
@@ -57,12 +57,14 @@ def INDEX2DROP(idx):
     try:
         ret = INDEX2_helper(idx, 'DROP')
     except Exception:
-        return False  # 如果该值本来就不存在，默认不丢弃
+        return False  # CSV 里没有这一列 → 默认不丢弃
 
-    if pandas.isna(ret):  # 如果是空（NaN）
+    if pandas.isna(ret):  # NaN 或缺失 → 不丢弃
         return False
 
-    return str(ret).lower() not in ['0', 'false']
+    val = str(ret).strip().lower()
+    falsy = ['0', '0.0', 'false', 'none', 'nan', '', 0.0, 'False']  # 这些都算“不丢弃”
+    return val not in falsy
 
 def INDEX2SLICE_START(idx):
     ret = INDEX2_helper(idx, 'SLICE_START')
@@ -405,10 +407,9 @@ class RealMeasurement(Dataset):
                 slice_start = 0
 
             if INDEX2SLICE_END(idx) is not None:
-                slice_end = INDEX2SLICE_END(idx)
+                slice_end = min(INDEX2SLICE_END(idx), num_slice)
             else:
-                #slice_end = num_slice - 5
-                slice_end = min(12, num_slice)  # 每个 subject 只取前 12 个 slice
+                slice_end = min(slice_start + 12, num_slice)  # 从起点往后取 12 张
             print(f"[IDX {idx}] x_hat shape: {num_slice}, slice_start={slice_start}, slice_end={slice_end}")
 
             for s in range(slice_start, slice_end):
@@ -417,6 +418,29 @@ class RealMeasurement(Dataset):
             self.acceleration_rate = acceleration_rate
 
         self.is_return_y_smps_hat = is_return_y_smps_hat
+
+        import csv
+        summary_path = os.path.join(TMPDIR, "spicer_tmp", "dataset_summary.csv")
+        per_file = {}
+
+        # 统计每个 subject 的 slice 数
+        for (ret, s) in self.__index_maps:
+            fname = os.path.basename(ret['x_hat']).replace('.h5', '')
+            if fname not in per_file:
+                per_file[fname] = {"slices": []}
+            per_file[fname]["slices"].append(s)
+
+        # 写 CSV 文件
+        with open(summary_path, "w", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Subject", "NumSlices", "SliceIndices"])
+            for fname, info in sorted(per_file.items()):
+                slices = sorted(info["slices"])
+                writer.writerow([fname, len(slices), f"{slices[0]}-{slices[-1]}" if slices else ""])
+
+        print(f"[SUMMARY] Subjects kept = {len(per_file)}")
+        print(f"[SUMMARY] Total slices = {len(self.__index_maps)}")
+        print(f"[SUMMARY] Detailed log saved to {summary_path}")
 
     def __len__(self):
         return len(self.__index_maps)
