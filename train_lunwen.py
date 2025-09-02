@@ -1,29 +1,61 @@
 # -*- coding: utf-8 -*-
 """
 SPICER training (slice-level, aligned with paper & author's code)
-- One optimizer.step per slice
-- Train/Val loss: bidirectional k-space MSE + lambda * gradient_loss(CSM)
-- LR: 1e-3 for first 30 epochs, then 1e-4
-- Save init_model.pth at start for test-time "random init" outputs
+- 保留你的整体结构、EarlyStopping 和 TensorBoard
+- 增强：可续训(恢复 optimizer/scheduler/日志/随机数)、捕获 SIGTERM、保存 init_model.pth
+- 修正：val() 的样本解包顺序、ACS 使用实际加速因子
 """
-import os, random, shutil
+import os, sys, argparse, random, signal, shutil
 os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 import numpy as np
 import torch
-import torch.nn.functional as F
+from torch.nn import functional as F
 import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 from datetime import datetime
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 from networks.SPICER_fastmri_network import SPNet
 from dataset.pmri_fastmri_brain_lunwen import RealMeasurement
 from dataset.pmri_fastmri_brain import fmult
 from utils.util import *
 from utils.measures import *
-from utils.loss_functions import gradient_loss
+from utils.loss_functions import gradient_loss, spicer_loss
+import pandas as pd
+import torch.optim as optim
 
-# ----------------- 固定随机种子（可复现） -----------------
+# ----------------- 解析参数（新增 resume 选项） -----------------
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=200, help='Number of training epochs')
+    parser.add_argument('--patience', type=int, default=20, help='Early stopping patience')
+    parser.add_argument('--acceleration', type=int, default=4, help='undersampling factor (e.g., 4 or 8)')
+    # 续训相关（可选）
+    parser.add_argument('--resume', action='store_true', help='resume training from checkpoint')
+    parser.add_argument('--resume_path', type=str, default='', help='path to a checkpoint_xxx.pth')
+    parser.add_argument('--resume_last_dir', type=str, default='', help='directory that contains checkpoint_last.pth')
+    return parser.parse_args()
+
+args = parse_args()
+epoch_number = args.epochs
+patience = args.patience
+ACCELERATION = int(args.acceleration)
+
+# ----------------- HPC 环境 & 设备 -----------------
+user = os.environ.get("USER", "unknown_user")
+TMPDIR = os.environ.get("TMPDIR", f"/tmp/{user}")
+HOME = os.path.expanduser("~")
+os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
+os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+torch.cuda.empty_cache()
+
+local_rank = int(os.environ.get("SLURM_PROCID", 0))
+device = f'cuda:{local_rank % max(1, torch.cuda.device_count())}' if torch.cuda.is_available() else 'cpu'
+print(f"🧠 Using device: {device}")
+
+# 固定随机种子（可复现续训）
 SEED = 2025
 random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED)
 if torch.cuda.is_available():
@@ -31,188 +63,309 @@ if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-# ----------------- 配置（与论文/作者对齐） -----------------
-ACCELERATION = 8
-EPOCHS = 200
-LR_INIT = 1e-3
-MILESTONES = [30]   # -> 1e-4
-LAMBDA_SMOOTH = 0.001  # 与作者参考代码一致（论文文本提到的0.01用于另一处；作者实现这里用0.001）
+# ----------------- 输出路径 -----------------
+now = datetime.now()
+timestamp = now.strftime("%d-%b-%Y-%H-%M-%S")
+model_name = 'SPICER_fastmri'
+save_root_tmp = os.path.join(TMPDIR, "spicer_out", f"{model_name}_{timestamp}")
+save_root_final = os.path.join(HOME, "spicer_outputs", f"{model_name}_{timestamp}")
+os.makedirs(save_root_tmp, exist_ok=True)
+os.makedirs(save_root_final, exist_ok=True)
+save_root = save_root_tmp
 
-# 设备
-local_rank = int(os.environ.get("SLURM_PROCID", 0))
-device = f'cuda:{local_rank % max(1, torch.cuda.device_count())}' if torch.cuda.is_available() else 'cpu'
-print(f"🧠 Using device: {device}")
+# TensorBoard
+log_dir = os.path.join(TMPDIR, "tensorboard_logs", timestamp)
+os.makedirs(log_dir, exist_ok=True)
+writer = SummaryWriter(log_dir=log_dir)
 
-# 输出目录
-user = os.environ.get("USER", "user")
-TMPDIR = os.environ.get("TMPDIR", f"/tmp/{user}")
-HOME = os.path.expanduser("~")
-timestamp = datetime.now().strftime("%d-%b-%Y-%H-%M-%S")
-save_root = os.path.join(TMPDIR, "spicer_out", f"SPICER_fastmri_{timestamp}")
-save_root_final = os.path.join(HOME, "spicer_outputs", f"SPICER_fastmri_{timestamp}")
-os.makedirs(save_root, exist_ok=True); os.makedirs(save_root_final, exist_ok=True)
+# ----------------- EarlyStopping -----------------
+class EarlyStopping:
+    def __init__(self, patience=10, verbose=False):
+        self.patience = patience
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.verbose = verbose
+        self.best_epoch = None
 
-# ----------------- 数据集（作者划分：130/15） -----------------
-train_idx = range(564, 694)  # 130 subjects
-val_idx   = range(694, 709)  # 15 subjects
+    def __call__(self, val_score, epoch):
+        if self.best_score is None:
+            self.best_score = val_score
+            self.best_epoch = epoch
+        elif val_score < self.best_score:
+            self.counter += 1
+            if self.verbose:
+                print(f"EarlyStopping counter: {self.counter} / {self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = val_score
+            self.best_epoch = epoch
+            self.counter = 0
 
-train_set = RealMeasurement(train_idx, acceleration_rate=ACCELERATION,
-                            is_return_y_smps_hat=True,
-                            mask_pattern='uniformly_cartesian',
-                            smps_hat_method='eps')
-val_set   = RealMeasurement(val_idx,   acceleration_rate=ACCELERATION,
-                            is_return_y_smps_hat=True,
-                            mask_pattern='uniformly_cartesian',
-                            smps_hat_method='eps')
+# ----------------- 数据 -----------------
+train_idx = range(564, 694)   # 130 subjects
+val_idx   = range(694, 709)   # 15 subjects
+# test_idx  = range(709, 729)   # 20 subjects （测试脚本使用）
 
-trainloader = DataLoader(train_set, batch_size=1, shuffle=True,  num_workers=0)
-valloader   = DataLoader(val_set,   batch_size=1, shuffle=False, num_workers=0)
+dataset = RealMeasurement(idx_list=train_idx, acceleration_rate=ACCELERATION,
+                          is_return_y_smps_hat=True,
+                          mask_pattern='uniformly_cartesian',
+                          smps_hat_method='eps')
+trainloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
+
+val_dataset = RealMeasurement(idx_list=val_idx, acceleration_rate=ACCELERATION,
+                              is_return_y_smps_hat=True,
+                              mask_pattern='uniformly_cartesian',
+                              smps_hat_method='eps')
+valloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
 
 # ----------------- 模型/优化器/调度器 -----------------
 model = SPNet(num_cascades=8, pools=4, chans=18, sens_pools=4, sens_chans=8).to(device)
 
-# —— 保存初始化权重（测试用） ——
-init_ckpt_path = os.path.join(save_root, "init_model.pth")
-torch.save(model.state_dict(), init_ckpt_path)
-print(f"[INIT] Saved random-initialized weights to {init_ckpt_path}")
+# 保存“随机初始化”权重，测试时可用来生成“初始化输出”
+init_weight_path = os.path.join(save_root, "init_model.pth")
+torch.save(model.state_dict(), init_weight_path)
+print(f"[INIT] Saved random-initialized weights -> {init_weight_path}")
 
-optimizer = torch.optim.Adam(model.parameters(), lr=LR_INIT, weight_decay=0.0)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=MILESTONES, gamma=0.1)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=0.0)
+scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
 
-# ----------------- 记录 -----------------
+# ----------------- 训练日志 -----------------
+snr_best = []
 train_loss_log, val_loss_log = [], []
 train_psnr_log, val_psnr_log = [], []
 train_ssim_log, val_ssim_log = [], []
+best_model_state = None
 best_psnr = -1e9
 
-# ----------------- 公共：损失计算（与训练/验证一致） -----------------
-def compute_loss_pair(y_m, y_n, mask_m, mask_n, output_m, output_n, smap_m, smap_n, lambda_smooth=LAMBDA_SMOOTH):
-    smap_m_1 = torch.view_as_complex(smap_m.squeeze())
-    smap_n_1 = torch.view_as_complex(smap_n.squeeze())
-    h_output_n = fmult(torch.view_as_complex(output_m), smap_m_1, mask_n)  # A_n(x_m)
-    h_output_m = fmult(torch.view_as_complex(output_n), smap_n_1, mask_m)  # A_m(x_n)
+# ----------------- 断点保存/恢复（增强） -----------------
+def save_checkpoint_full(epoch, tag="last"):
+    ckpt = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'train_loss_log': train_loss_log,
+        'val_loss_log': val_loss_log,
+        'train_psnr_log': train_psnr_log,
+        'val_psnr_log': val_psnr_log,
+        'train_ssim_log': train_ssim_log,
+        'val_ssim_log': val_ssim_log,
+        'rng': {
+            'python': random.getstate(),
+            'numpy': np.random.get_state(),
+            'torch': torch.get_rng_state(),
+            'torch_cuda': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        },
+        'meta': {
+            'acceleration': ACCELERATION,
+        }
+    }
+    path = os.path.join(save_root, f"checkpoint_{tag}.pth")
+    torch.save(ckpt, path)
+    if tag != "last":
+        torch.save(ckpt, os.path.join(save_root, "checkpoint_last.pth"))
+    print(f"[CKPT] saved -> {path}")
 
-    rec = 0.5 * (
-        F.mse_loss(torch.view_as_real(h_output_m).float().squeeze(),
-                   torch.view_as_real(y_m).float().squeeze())
-      + F.mse_loss(torch.view_as_real(h_output_n).float().squeeze(),
-                   torch.view_as_real(y_n).float().squeeze())
-    )
-    smap_m_for_smooth = smap_m.squeeze().permute(0, 3, 1, 2)
-    smap_n_for_smooth = smap_n.squeeze().permute(0, 3, 1, 2)
-    smooth = 0.5 * (gradient_loss(smap_m_for_smooth) + gradient_loss(smap_n_for_smooth))
-    return rec + lambda_smooth * smooth
+def try_resume():
+    # 1) 显式 --resume_path
+    if args.resume and args.resume_path and os.path.exists(args.resume_path):
+        path = args.resume_path
+    # 2) 指定目录下的 checkpoint_last.pth
+    elif args.resume_last_dir and os.path.exists(os.path.join(args.resume_last_dir, "checkpoint_last.pth")):
+        path = os.path.join(args.resume_last_dir, "checkpoint_last.pth")
+    # 3) 兼容你原逻辑：当前 save_root 下的 checkpoint_last.pth
+    else:
+        path = os.path.join(save_root, "checkpoint_last.pth")
+        if not os.path.exists(path):
+            return 0  # 不恢复
+
+    print(f"🔁 恢复训练：{path}")
+    ckpt = torch.load(path, map_location=device)
+    model.load_state_dict(ckpt['model_state_dict'])
+    optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+    if 'scheduler_state_dict' in ckpt:
+        scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+
+    # 恢复日志
+    train_loss_log[:] = ckpt.get('train_loss_log', [])
+    val_loss_log[:]   = ckpt.get('val_loss_log', [])
+    train_psnr_log[:] = ckpt.get('train_psnr_log', [])
+    val_psnr_log[:]   = ckpt.get('val_psnr_log', [])
+    train_ssim_log[:] = ckpt.get('train_ssim_log', [])
+    val_ssim_log[:]   = ckpt.get('val_ssim_log', [])
+
+    # 恢复随机数状态（可复现 Dataloader 顺序与 dropout 等）
+    rng = ckpt.get('rng', {})
+    if rng.get('python') is not None: random.setstate(rng['python'])
+    if rng.get('numpy')  is not None: np.random.set_state(rng['numpy'])
+    if rng.get('torch')  is not None: torch.set_rng_state(rng['torch'])
+    if torch.cuda.is_available() and rng.get('torch_cuda') is not None:
+        torch.cuda.set_rng_state_all(rng['torch_cuda'])
+
+    start_epoch = ckpt.get('epoch', -1) + 1
+    print(f"[CKPT] resume start_epoch = {start_epoch}")
+    return start_epoch
+
+# 捕获 SLURM SIGTERM，紧急保存
+CURRENT_EPOCH = 0
+def _handle_sigterm(signum, frame):
+    print("[CKPT] Caught SIGTERM, saving checkpoint_last and exiting...")
+    save_checkpoint_full(CURRENT_EPOCH, tag="last")
+    sys.exit(0)
+signal.signal(signal.SIGTERM, _handle_sigterm)
 
 # ----------------- 训练/验证 -----------------
-def train_one_epoch(epoch):
+def train(epoch):
     model.train()
-    psnrs, ssims, losses = [], [], []
-
-    for samples in tqdm(trainloader, desc=f"Train [{epoch:03d}]"):
+    psnrs, losses, ssims = [], [], []
+    for iteration, samples in enumerate(tqdm(trainloader, desc=f"Train [{epoch:03d}]")):
+        # 数据解包：与你的数据集 RealMeasurement 对齐
         x_hat, smps_hat, y, mask_m, mask_n = samples
         x_hat = x_hat.to(device)
-        y = y.to(device)
         mask_m = mask_m.byte().to(device)
         mask_n = mask_n.byte().to(device)
+        y = y.to(device)
+        y_m = y * mask_m
+        y_n = y * mask_n
 
-        y_m, y_n = y * mask_m, y * mask_n
-        y_m_in = y_m.squeeze(1) if y_m.shape[1] == 1 else y_m
-        y_n_in = y_n.squeeze(1) if y_n.shape[1] == 1 else y_n
+        # squeeze 以适配 model 的输入
+        y_m_input = y_m.squeeze(1) if y_m.shape[1] == 1 else y_m
+        y_n_input = y_n.squeeze(1) if y_n.shape[1] == 1 else y_n
 
         ny = y_m.shape[-2]
-        ACS = ((ny // 2) - (int(ny * 0.2 * (2 / ACCELERATION)) // 2)) * 2
+        ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / ACCELERATION)) // 2)) * 2
 
-        output_m, smap_m = model(torch.view_as_real(y_m_in), mask_m, ACS_center=(ny // 2), ACS_size=ACS)
-        output_n, smap_n = model(torch.view_as_real(y_n_in), mask_n, ACS_center=(ny // 2), ACS_size=ACS)
+        output_m, smap_m = model(torch.view_as_real(y_m_input), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
+        output_n, smap_n = model(torch.view_as_real(y_n_input), mask_n, ACS_center=(ny // 2), ACS_size=ACS_size)
 
-        loss = compute_loss_pair(y_m, y_n, mask_m, mask_n, output_m, output_n, smap_m, smap_n)
+        smap_m_1 = torch.view_as_complex(smap_m.squeeze())
+        smap_n_1 = torch.view_as_complex(smap_n.squeeze())
+
+        h_output_n = fmult(torch.view_as_complex(output_m), smap_m_1, mask_n)
+        h_output_m = fmult(torch.view_as_complex(output_n), smap_n_1, mask_m)
+
+        # 与作者实现一致的 SPICER loss
+        loss = spicer_loss(h_output_m, y_m, h_output_n, y_n, smap_m, gamma=1.0, tau=0.1)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # 图像域监控
-        out = normlize(complex_abs(output_m.detach().cpu().squeeze())).to(device)
-        tgt = normlize(torch.abs(x_hat.squeeze())).to(device)
-        psnrs.append(compare_psnr(out, tgt).cpu())
-        ssims.append(compare_ssim(out[None, None], tgt[None, None]).cpu())
+        # PSNR & SSIM（图像域监控）
+        output_show = complex_abs(output_m.detach().cpu().squeeze())
+        output_show = normlize(output_show)
+        target_show = normlize(torch.abs(x_hat.squeeze()))
+        psnrs.append(compare_psnr(output_show.to(device), target_show.to(device)).cpu())
+        ssims.append(compare_ssim(output_show[None, None].to(device), target_show[None, None].to(device)).cpu())
         losses.append(loss.item())
 
     train_loss_log.append(float(np.mean(losses)))
     train_psnr_log.append(float(np.mean(psnrs)))
     train_ssim_log.append(float(np.mean(ssims)))
 
-def validate(epoch):
+    writer.add_scalar("Loss_Train", train_loss_log[-1], epoch)
+    writer.add_scalar("PSNR_Train", train_psnr_log[-1], epoch)
+    writer.add_scalar("SSIM_Train", train_ssim_log[-1], epoch)
+    print(f"[Train Debug] Epoch {epoch} - Loss: {train_loss_log[-1]:.6f}")
+
+def val(epoch):
     model.eval()
-    psnrs, ssims, losses_trainstyle = [], [], []
-
+    psnrs, ssims, losses = [], [], []
     with torch.no_grad():
-        for x_hat, smps_hat, y, mask_m, mask_n in valloader:
+        for iteration, samples in enumerate(valloader):
+            # ⚠️ 修正：与训练一致的解包，而不是 (dicom, x0, ...)
+            x_hat, smps_hat, y_input, mask_input_m, mask_input_n = samples
             x_hat = x_hat.to(device)
-            y = y.to(device)
-            mask_m = mask_m.byte().to(device)
-            mask_n = mask_n.byte().to(device)
+            y_m = y_input.to(device)
+            mask_m = mask_input_m.byte().to(device)
 
-            y_m, y_n = y * mask_m, y * mask_n
-            y_m_in = y_m.squeeze(1) if y_m.shape[1] == 1 else y_m
-            y_n_in = y_n.squeeze(1) if y_n.shape[1] == 1 else y_n
+            if iteration == 0:
+                print(f"[Debug] y_m.shape = {y_m.shape}")
+                print(f"[Debug] view_as_real(y_m.squeeze(1)).shape = {torch.view_as_real(y_m.squeeze(1)).shape}")
 
             ny = y_m.shape[-2]
-            ACS = ((ny // 2) - (int(ny * 0.2 * (2 / ACCELERATION)) // 2)) * 2
+            ACS_size = ((ny // 2) - (int(ny * 0.2 * (2 / ACCELERATION)) // 2)) * 2
 
-            output_m, smap_m = model(torch.view_as_real(y_m_in), mask_m, ACS_center=(ny // 2), ACS_size=ACS)
-            output_n, smap_n = model(torch.view_as_real(y_n_in), mask_n, ACS_center=(ny // 2), ACS_size=ACS)
+            output_m, _ = model(torch.view_as_real(y_m.squeeze(1)), mask_m, ACS_center=(ny // 2), ACS_size=ACS_size)
 
-            # 1) 与训练一致的损失
-            loss_trainstyle = compute_loss_pair(y_m, y_n, mask_m, mask_n, output_m, output_n, smap_m, smap_n)
-            losses_trainstyle.append(loss_trainstyle.item())
+            output_show = normlize(complex_abs(output_m.detach().cpu().squeeze())).to(device)
+            target_show = normlize(torch.abs(x_hat.squeeze())).to(device)
+            psnrs.append(compare_psnr(output_show, target_show).cpu())
+            ssims.append(compare_ssim(output_show[None, None], target_show[None, None]).cpu())
+            losses.append(F.mse_loss(output_show, target_show).item())
 
-            # 2) 图像域指标
-            out = normlize(complex_abs(output_m.detach().cpu().squeeze())).to(device)
-            tgt = normlize(torch.abs(x_hat.squeeze())).to(device)
-            psnrs.append(compare_psnr(out, tgt).cpu())
-            ssims.append(compare_ssim(out[None, None], tgt[None, None]).cpu())
-
-    val_loss_log.append(float(np.mean(losses_trainstyle)))
     val_psnr_log.append(float(np.mean(psnrs)))
     val_ssim_log.append(float(np.mean(ssims)))
+    val_loss_log.append(float(np.mean(losses)))
+    writer.add_scalar("Loss_Val", val_loss_log[-1], epoch)
+    writer.add_scalar("PSNR_Val", val_psnr_log[-1], epoch)
+    writer.add_scalar("SSIM_Val", val_ssim_log[-1], epoch)
 
-# ----------------- 主训练循环 -----------------
-if __name__ == "__main__":
-    for epoch in range(EPOCHS):
-        print(f"\n🔁 Epoch {epoch}/{EPOCHS}")
-        train_one_epoch(epoch)
-        validate(epoch)
+    if epoch % 5 == 0 or val_psnr_log[-1] >= max(val_psnr_log):
+        torch.save(model.state_dict(), os.path.join(save_root, f"N2N_{epoch:03d}.pth"))
 
-        # 保存日志 + checkpoint
-        np.savetxt(os.path.join(save_root, "train_loss.txt"), np.array(train_loss_log))
-        np.savetxt(os.path.join(save_root, "val_loss.txt"),   np.array(val_loss_log))
-        np.savetxt(os.path.join(save_root, "train_psnr.txt"), np.array(train_psnr_log))
-        np.savetxt(os.path.join(save_root, "val_psnr.txt"),   np.array(val_psnr_log))
-        np.savetxt(os.path.join(save_root, "train_ssim.txt"), np.array(train_ssim_log))
-        np.savetxt(os.path.join(save_root, "val_ssim.txt"),   np.array(val_ssim_log))
-        torch.save(model.state_dict(), os.path.join(save_root, "checkpoint_last.pth"))
+# ----------------- 主训练循环（含续训 & SIGTERM 保护） -----------------
+start_epoch = try_resume()  # 若找不到断点则返回 0
 
-        # best by Val PSNR
-        if val_psnr_log[-1] > best_psnr:
-            best_psnr = val_psnr_log[-1]
-            torch.save(model.state_dict(), os.path.join(save_root, "best_model.pth"))
+early_stopper = EarlyStopping(patience=patience, verbose=True)
 
-        # lr 调度
-        scheduler.step()
-        print(f"🔹 LR = {scheduler.get_last_lr()[0]:.6f}")
+for epoch in range(start_epoch, epoch_number):
+    CURRENT_EPOCH = epoch  # 供 SIGTERM handler 使用
+    print(f"\n🔁 Epoch {epoch}/{epoch_number} 开始")
+    train(epoch)
+    print(f"✅ Train epoch {epoch} completed. Loss: {train_loss_log[-1]:.4e}")
+    val(epoch)
+    print(f"✅ Val   epoch {epoch} completed. Loss: {val_loss_log[-1]:.4e}")
 
-    # 曲线图
-    plt.figure(figsize=(12,4))
-    plt.subplot(1,3,1); plt.plot(train_loss_log,label='Train'); plt.plot(val_loss_log,label='Val'); plt.title("Loss"); plt.legend(); plt.grid()
-    plt.subplot(1,3,2); plt.plot(train_psnr_log,label='Train'); plt.plot(val_psnr_log,label='Val'); plt.title("PSNR"); plt.legend(); plt.grid()
-    plt.subplot(1,3,3); plt.plot(train_ssim_log,label='Train'); plt.plot(val_ssim_log,label='Val'); plt.title("SSIM"); plt.legend(); plt.grid()
-    plt.tight_layout(); plt.savefig(os.path.join(save_root, "training_curves.png"))
+    # 刷新 TensorBoard
+    writer.flush()
 
-    # 复制到 HOME
-    for fn in os.listdir(save_root):
-        src = os.path.join(save_root, fn)
-        dst = os.path.join(save_root_final, fn)
-        if not os.path.exists(dst):
-            shutil.copy2(src, dst)
-    print(f"✅ Artifacts copied to: {save_root_final}")
+    # 保存“last”断点（全量）
+    save_checkpoint_full(epoch, tag="last")
+
+    # 保存 best model（以 Val PSNR 为准）
+    if val_psnr_log[-1] > best_psnr:
+        best_psnr = val_psnr_log[-1]
+        torch.save(model.state_dict(), os.path.join(save_root, "best_model.pth"))
+
+    # Early stopping
+    early_stopper(val_psnr_log[-1], epoch)
+    if early_stopper.early_stop:
+        print(f"⛔️ Early stopping triggered at epoch {epoch}, best epoch was {early_stopper.best_epoch}")
+        break
+
+    # 学习率调度
+    scheduler.step()
+    current_lr = scheduler.get_last_lr()[0]
+    print(f"🔹 Current learning rate: {current_lr:.6f}")
+
+# ----------------- 训练收尾：曲线 + 复制产物 -----------------
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 3, 1); plt.plot(train_loss_log, label='Train'); plt.plot(val_loss_log, label='Val'); plt.title("Loss"); plt.legend(); plt.grid()
+plt.subplot(1, 3, 2); plt.plot(train_psnr_log, label='Train'); plt.plot(val_psnr_log, label='Val'); plt.title("PSNR"); plt.legend(); plt.grid()
+plt.subplot(1, 3, 3); plt.plot(train_ssim_log, label='Train'); plt.plot(val_ssim_log, label='Val'); plt.title("SSIM"); plt.legend(); plt.grid()
+plt.tight_layout()
+plt.savefig(os.path.join(save_root, "training_curves.png"))
+
+print("\n✅ 拷贝模型与图像到:", save_root_final)
+os.makedirs(save_root_final, exist_ok=True)
+for file in os.listdir(save_root):
+    src = os.path.join(save_root, file)
+    dst = os.path.join(save_root_final, file)
+    if not os.path.exists(dst):
+        shutil.copy2(src, dst)
+print("✅ 模型与图像已复制完毕 ✅")
+
+metrics_dict = {
+    'epoch': list(range(start_epoch, start_epoch + len(train_loss_log))),
+    'train_loss': train_loss_log,
+    'val_loss': val_loss_log,
+    'train_psnr': train_psnr_log,
+    'val_psnr': val_psnr_log,
+    'train_ssim': train_ssim_log,
+    'val_ssim': val_ssim_log,
+}
+df_metrics = pd.DataFrame(metrics_dict)
+df_metrics.to_csv(os.path.join(save_root, "metrics.csv"), index=False)
