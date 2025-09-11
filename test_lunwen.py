@@ -141,13 +141,16 @@ with torch.no_grad():
         # ---- Zero-filled (用 ftran 与 smps_hat、mask_m) ----
         # ftran expects torch Tensors of complex dtype with shapes aligned:
         # y_m: [B,C,H,W] complex, smps_hat: [B,C,H,W] complex, mask: [B,H,W] float/bool
-        zf_cplx = ftran(y_m.squeeze(0), smps_hat.squeeze(0), mask_m.squeeze(0))  # [H,W] complex
-        zf_mag = to_mag_norm(torch.abs(zf_cplx))
+        # zf_cplx = ftran(y_m.squeeze(0), smps_hat.squeeze(0), mask_m.squeeze(0))  # [H,W] complex
+        # zf_mag = to_mag_norm(torch.abs(zf_cplx))
+        zf_cplx = ftran(y_m, smps_hat, mask_m)  # 保持 batch 维度
+        zf_mag = to_mag_norm(torch.abs(zf_cplx.squeeze(0)))
 
         # ---- 模型输入 (view_as_real) ----
         # SPNet forward expects: (B,C,H,W,2) real-imag split
-        y_m_in = y_m.squeeze(1) if y_m.shape[1] == 1 else y_m  # 适配是否有多余维
-        y_m_in = torch.view_as_real(y_m_in)  # [B,C,H,W,2]
+        # y_m_in = y_m.squeeze(1) if y_m.shape[1] == 1 else y_m  # 适配是否有多余维
+        # y_m_in = torch.view_as_real(y_m_in)  # [B,C,H,W,2]
+        y_m_in = torch.view_as_real(y_m)  # [B,C,H,W,2]
 
         # ---- Trained model output ----
         out_trained, _ = model(y_m_in, mask_m, ACS_center=ACS_center, ACS_size=ACS_size)  # image domain complex
