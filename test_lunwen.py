@@ -219,7 +219,7 @@ df_slices.to_csv(os.path.join(save_dir, "metrics_slices.csv"), index=False)
 
 # per subject mean±std
 subj_recs = []
-for subj, lst in subject_rows.items:
+for subj, lst in subject_rows.items():
     df = pd.DataFrame(lst)
     def stat_pair(cols):
         v = df[cols].mean(), df[cols].std()
