@@ -164,7 +164,7 @@ def save_checkpoint_full(epoch, tag="last"):
     }
     path = os.path.join(save_root, f"checkpoint_{tag}.pth")
     torch.save(ckpt, path)
-    if tag != "last":
+    if tag == "last":
         torch.save(ckpt, os.path.join(save_root, "checkpoint_last.pth"))
     print(f"[CKPT] saved -> {path}")
 
@@ -276,10 +276,10 @@ def val(epoch):
     with torch.no_grad():
         for iteration, samples in enumerate(valloader):
             # ⚠️ 修正：与训练一致的解包，而不是 (dicom, x0, ...)
-            x_hat, smps_hat, y_input, mask_input_m, mask_input_n = samples
+            x_hat, smps_hat, y, mask_m, mask_n = samples
             x_hat = x_hat.to(device)
-            y_m = y_input.to(device)
-            mask_m = mask_input_m.byte().to(device)
+            y_m = y.to(device)
+            mask_m = mask_m.byte().to(device)
 
             if iteration == 0:
                 print(f"[Debug] y_m.shape = {y_m.shape}")
@@ -354,8 +354,8 @@ os.makedirs(save_root_final, exist_ok=True)
 for file in os.listdir(save_root):
     src = os.path.join(save_root, file)
     dst = os.path.join(save_root_final, file)
-    if not os.path.exists(dst):
-        shutil.copy2(src, dst)
+    #if not os.path.exists(dst):
+    shutil.copy2(src, dst)
 print("✅ 模型与图像已复制完毕 ✅")
 
 metrics_dict = {
