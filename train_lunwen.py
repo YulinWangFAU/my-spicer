@@ -175,7 +175,7 @@ def try_resume():
     # 2) 指定目录下的 checkpoint_last.pth
     elif args.resume_last_dir and os.path.exists(os.path.join(args.resume_last_dir, "checkpoint_last.pth")):
         path = os.path.join(args.resume_last_dir, "checkpoint_last.pth")
-    # 3) 兼容你原逻辑：当前 save_root 下的 checkpoint_last.pth
+    # 3) 当前 save_root 下的 checkpoint_last.pth
     else:
         path = os.path.join(save_root, "checkpoint_last.pth")
         if not os.path.exists(path):
@@ -196,13 +196,19 @@ def try_resume():
     train_ssim_log[:] = ckpt.get('train_ssim_log', [])
     val_ssim_log[:]   = ckpt.get('val_ssim_log', [])
 
-    # 恢复随机数状态（可复现 Dataloader 顺序与 dropout 等）
+    # 恢复随机数状态（兼容旧格式）
     rng = ckpt.get('rng', {})
-    if rng.get('python') is not None: random.setstate(rng['python'])
-    if rng.get('numpy')  is not None: np.random.set_state(rng['numpy'])
-    if rng.get('torch')  is not None: torch.set_rng_state(rng['torch'])
+    if rng.get('python') is not None:
+        random.setstate(rng['python'])
+    if rng.get('numpy') is not None:
+        np.random.set_state(rng['numpy'])
+    if rng.get('torch') is not None:
+        torch.set_rng_state(torch.as_tensor(rng['torch'], dtype=torch.uint8))
     if torch.cuda.is_available() and rng.get('torch_cuda') is not None:
-        torch.cuda.set_rng_state_all(rng['torch_cuda'])
+        cuda_states = []
+        for st in rng['torch_cuda']:
+            cuda_states.append(torch.as_tensor(st, dtype=torch.uint8))
+        torch.cuda.set_rng_state_all(cuda_states)
 
     start_epoch = ckpt.get('epoch', -1) + 1
     print(f"[CKPT] resume start_epoch = {start_epoch}")
