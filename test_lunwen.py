@@ -38,6 +38,9 @@ def parse_args():
     p.add_argument('--save_root',  type=str, default='recon_results',
                    help='root to save test outputs')
     p.add_argument('--batch_size', type=int, default=1)
+    p.add_argument('--epoch', type=int, default=-1,
+                   help='if >=0, load N2N_<epoch>.pth instead of best/last')
+
     return p.parse_args()
 
 args = parse_args()
@@ -65,10 +68,22 @@ def build_model():
 
 # trained model
 model = build_model()
-ckpt_path = os.path.join(args.model_dir, "best_model.pth" if args.use_best else "checkpoint_last.pth")
-print(f"🔍 Load trained model: {ckpt_path}")
-state = torch.load(ckpt_path, map_location=device)
-model.load_state_dict(state)
+if args.epoch >= 0:
+    ckpt_path = os.path.join(args.model_dir, f"N2N_{args.epoch:03d}.pth")
+    print(f"🔍 Load trained model from epoch {args.epoch}: {ckpt_path}")
+    state = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(state)  # N2N_xxx.pth 只存参数
+elif args.use_best:
+    ckpt_path = os.path.join(args.model_dir, "best_model.pth")
+    print(f"🔍 Load trained model (best): {ckpt_path}")
+    state = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(state['model_state_dict'] if isinstance(state, dict) else state)
+else:
+    ckpt_path = os.path.join(args.model_dir, "checkpoint_last.pth")
+    print(f"🔍 Load trained model (last): {ckpt_path}")
+    state = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(state['model_state_dict'])
+
 model.eval()
 
 # random-init model (for “初始化输出”)
