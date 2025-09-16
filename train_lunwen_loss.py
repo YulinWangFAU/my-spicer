@@ -203,7 +203,7 @@ def try_resume():
     if rng.get('numpy') is not None:
         np.random.set_state(rng['numpy'])
     if rng.get('torch') is not None:
-        torch.set_rng_state(torch.as_tensor(rng['torch'], dtype=torch.uint8))
+        torch.set_rng_state(torch.as_tensor(rng['torch']))
     if torch.cuda.is_available() and rng.get('torch_cuda') is not None:
         cuda_states = []
         for st in rng['torch_cuda']:
