@@ -138,17 +138,29 @@ def uniformly_cartesian_mask(img_size, acceleration_rate, acs_percentage: float 
     mask = np.zeros(shape=(acceleration_rate,) + img_size, dtype=np.float32)
     mask[..., ACS_START_INDEX: (ACS_END_INDEX + 1)] = 1
 
-    for i in range(ny):
+    # ----- 稀疏采样部分 -----
+    if ny % acceleration_rate == 0:
+        # ✅ 原始逻辑：%R 均匀采样
+        for i in range(ny):
+            for j in range(acceleration_rate):
+                if i % acceleration_rate == j:
+                    mask[j, ..., i] = 1
+    else:
+        # ⚡ 改进逻辑：用 linspace 均匀挑选
+        num_samples = ny // acceleration_rate
+        sampled_idx = np.linspace(0, ny - 1, num_samples, dtype=int)
         for j in range(acceleration_rate):
-            if i % acceleration_rate == j:
-                mask[j, ..., i] = 1
+            mask[j, ..., sampled_idx] = 1
 
+    # ----- 随机返回 or 固定两条 -----
     if randomly_return:
         mask = mask[np.random.randint(0, acceleration_rate)]
+    else:
+        mask = (mask[0], mask[acceleration_rate // 2])
     # else:
     #     mask = mask[0]
 
-    return mask[0], mask[acceleration_rate // 2]
+    return mask
 
 
 _mask_fn = {
