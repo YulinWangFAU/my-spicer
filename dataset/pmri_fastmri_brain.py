@@ -249,8 +249,8 @@ def load_real_dataset_handle(
             for i in range(y.shape[0]):
                 y[i] /= np.amax(np.abs(y[i]))
 
+        # === 生成 mask ===
         print(f"[DEBUG] 🌀 Generating mask and saving to: {mask_h5}", flush=True)
-
         if not os.path.exists(mask_h5):
             _, _, n_x, n_y = y.shape
             if acceleration_rate > 1:
@@ -259,13 +259,16 @@ def load_real_dataset_handle(
                 mask = np.ones(shape=(n_x, n_y), dtype=np.float32)
             mask = np.expand_dims(mask, 0)
             mask = torch.from_numpy(mask)
-            with h5py.File(mask_h5, 'w') as f:
-                f.create_dataset(name='mask', data=mask)
 
+            tmp_file = mask_h5 + ".tmp"
+            with h5py.File(tmp_file, 'w') as f:
+                f.create_dataset(name='mask', data=mask)
+            os.rename(tmp_file, mask_h5)
         else:
             with h5py.File(mask_h5, 'r') as f:
                 mask = f['mask'][:]
 
+        # === 生成 smps_hat ===
         print(f"[DEBUG] 🔧 Generating smps_hat and saving to: {smps_hat_h5}", flush=True)
         if not os.path.exists(smps_hat_h5):
             os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
@@ -273,6 +276,7 @@ def load_real_dataset_handle(
             from sigpy.mri.app import EspiritCalib
             from sigpy import Device
             import cupy
+
             num_slice = y.shape[0]
             iter_ = tqdm.tqdm(range(num_slice), desc=f'[{idx}, {INDEX2FILE(idx)}] Generating coil sensitivity map (smps_hat)', disable=not is_main_process())
             smps_hat = np.zeros_like(y)
@@ -280,8 +284,12 @@ def load_real_dataset_handle(
                 tmp = EspiritCalib(y[i] * mask.cpu().numpy(), device=Device(0), show_pbar=False).run()
                 tmp = cupy.asnumpy(tmp)
                 smps_hat[i] = tmp
-            with h5py.File(smps_hat_h5, 'w') as f:
+
+            tmp_file = smps_hat_h5 + ".tmp"
+            with h5py.File(tmp_file, 'w') as f:
                 f.create_dataset(name='smps_hat', data=smps_hat)
+            os.rename(tmp_file, smps_hat_h5)
+
             tmp = np.ones(shape=smps_hat.shape, dtype=np.uint8)
             for i in range(tmp.shape[0]):
                 for j in range(tmp.shape[1]):
@@ -291,14 +299,17 @@ def load_real_dataset_handle(
             with h5py.File(smps_hat_h5, 'r') as f:
                 smps_hat = f['smps_hat'][:]
 
+        # === 生成 x_hat ===
         y = torch.from_numpy(y)
         smps_hat = torch.from_numpy(smps_hat)
         if isinstance(mask, np.ndarray):
             mask = torch.from_numpy(mask)
         x_hat = ftran(y, smps_hat, mask)
 
-        with h5py.File(x_hat_h5, 'w') as f:
+        tmp_file = x_hat_h5 + ".tmp"
+        with h5py.File(tmp_file, 'w') as f:
             f.create_dataset(name='x_hat', data=x_hat)
+        os.rename(tmp_file, x_hat_h5)
 
         tmp = np.ones(shape=x_hat.shape, dtype=np.uint8)
         for i in range(x_hat.shape[0]):
@@ -309,6 +320,7 @@ def load_real_dataset_handle(
     if is_return_y_smps_hat:
         ret.update({'smps_hat': smps_hat_h5, 'y': y_h5, 'mask': mask_h5})
     return ret
+
 
 
 
