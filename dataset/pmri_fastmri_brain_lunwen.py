@@ -14,19 +14,6 @@ import tifffile
 import pandas
 from torch.utils.data import Dataset
 
-def safe_remove_corrupt_h5(path, dataset_key=None):
-    """检查 h5 文件是否能正常打开，不行就删掉"""
-    import h5py
-    import os
-    if os.path.exists(path):
-        try:
-            with h5py.File(path, 'r') as f:
-                if dataset_key and dataset_key in f:
-                    _ = f[dataset_key][:]
-        except Exception as e:
-            print(f"[⚠️ 检测到损坏的 h5，将删除重建]: {path} ({e})", flush=True)
-            os.remove(path)
-
 # 设置数据路径（fastMRI 和 CSV）
 #### ROOT_PATH is where the fastmri dataset stored ####
 # ROOT_PATH = './dataset/fastmri_brain_multicoil/'
@@ -229,70 +216,107 @@ def load_real_dataset_handle(
 ):
     MAX_RETRY = 3
     print(f"[DEBUG] 🚀 Starting load_real_dataset_handle with idx={idx}", flush=True)
+    #root_path = os.path.join(ROOT_PATH, 'real')
     TMPDIR = os.environ.get("TMPDIR", f"/tmp/{os.environ.get('USER', 'user')}")
     REAL_OUTPUT_ROOT = os.path.join(TMPDIR, "spicer_tmp", "real")
     root_path = REAL_OUTPUT_ROOT
+
     check_and_mkdir(root_path)
 
     y_h5 = os.path.join(ROOT_PATH, INDEX2FILE(idx) + '.h5')
     print(f"[DEBUG] Trying to open k-space file: {y_h5}", flush=True)
+
+    # ✅ Debug：尝试打开主 .h5 文件，如果失败就立即抛出具体原因
     try:
         with h5py.File(y_h5, 'r') as f:
             print(f"[DEBUG] ✅ Successfully opened: {y_h5}", flush=True)
     except Exception as e:
         print(f"[ERROR] ❌ Failed to open {y_h5}: {e}", flush=True)
         raise e
-
-    meas_path = os.path.join(root_path, f"acceleration_rate_{acceleration_rate}_smps_hat_method_{smps_hat_method}")
+    meas_path = os.path.join(root_path, "acceleration_rate_%d_smps_hat_method_%s" % (
+        acceleration_rate, smps_hat_method))
     check_and_mkdir(meas_path)
 
     x_hat_path = os.path.join(meas_path, 'x_hat')
-    smps_hat_path = os.path.join(meas_path, 'smps_hat')
-    mask_path = os.path.join(meas_path, 'mask')
     check_and_mkdir(x_hat_path)
-    check_and_mkdir(smps_hat_path)
-    check_and_mkdir(mask_path)
 
     x_hat_h5 = os.path.join(x_hat_path, INDEX2FILE(idx) + '.h5')
+
+    smps_hat_path = os.path.join(meas_path, 'smps_hat')
+    check_and_mkdir(smps_hat_path)
+
     smps_hat_h5 = os.path.join(smps_hat_path, INDEX2FILE(idx) + '.h5')
+
+    mask_path = os.path.join(meas_path, 'mask')
+    check_and_mkdir(mask_path)
+
     mask_h5 = os.path.join(mask_path, INDEX2FILE(idx) + '.h5')
-
-    print("Loading mask file:", mask_h5, flush=True)
-
-    # ✅ 在生成前检查并清理坏文件
-    safe_remove_corrupt_h5(x_hat_h5, dataset_key='x_hat')
-    safe_remove_corrupt_h5(mask_h5, dataset_key='mask')
-    safe_remove_corrupt_h5(smps_hat_h5, dataset_key='smps_hat')
-
-    # 如果 x_hat 不存在就生成
+    print("Loading mask file:", mask_h5, flush=True)  # ✅ 加这一行
+    # ✅ [新增] 检查 x_hat 是否损坏
+    if os.path.exists(x_hat_h5):
+        try:
+            with h5py.File(x_hat_h5, 'r') as f:
+                _ = f['x_hat'][:]
+        except Exception as e:
+            print(f"[⚠️ 读取 x_hat 失败，将删除重建]: {x_hat_h5}", flush=True)
+            os.remove(x_hat_h5)
+            if retry_count < MAX_RETRY:
+                return load_real_dataset_handle(idx, acceleration_rate, is_return_y_smps_hat,
+                                                mask_pattern, smps_hat_method, retry_count + 1)
+            else:
+                raise RuntimeError(f"[❌] x_hat 生成失败多次，终止 idx={idx}")
     if not os.path.exists(x_hat_h5):
+
         with h5py.File(y_h5, 'r') as f:
             y = f['kspace'][:]
+
+            # Normalize the kspace to 0-1 region
             for i in range(y.shape[0]):
                 y[i] /= np.amax(np.abs(y[i]))
-
-        # === 生成 mask ===
         print(f"[DEBUG] 🌀 Generating mask and saving to: {mask_h5}", flush=True)
+
+        if os.path.exists(mask_h5):
+            try:
+                with h5py.File(mask_h5, 'r') as f:
+                    _ = f['mask'][:]
+            except Exception as e:
+                print(f"[⚠️ 读取 mask 失败，将删除重建]: {mask_h5}", flush=True)
+                os.remove(mask_h5)
         if not os.path.exists(mask_h5):
+
             _, _, n_x, n_y = y.shape
             if acceleration_rate > 1:
                 mask = _mask_fn[mask_pattern]((n_x, n_y), acceleration_rate)
+
             else:
                 mask = np.ones(shape=(n_x, n_y), dtype=np.float32)
-            mask = np.expand_dims(mask, 0)
+
+            mask = np.expand_dims(mask, 0)  # add batch dimension
             mask = torch.from_numpy(mask)
 
-            tmp_file = mask_h5 + ".tmp"
-            with h5py.File(tmp_file, 'w') as f:
+
+            if os.path.exists(mask_h5):
+                os.remove(mask_h5)
+            with h5py.File(mask_h5, 'w') as f:
                 f.create_dataset(name='mask', data=mask)
-            os.rename(tmp_file, mask_h5)
+
         else:
+            print(f"Opening mask file: {mask_h5}")
             with h5py.File(mask_h5, 'r') as f:
                 mask = f['mask'][:]
-
-        # === 生成 smps_hat ===
         print(f"[DEBUG] 🔧 Generating smps_hat and saving to: {smps_hat_h5}", flush=True)
+        if os.path.exists(smps_hat_h5):
+            try:
+                with h5py.File(smps_hat_h5, 'r') as f:
+                    _ = f['smps_hat'][:]
+            except Exception as e:
+                print(f"[⚠️ 读取 smps_hat 失败，将删除重建]: {smps_hat_h5}", flush=True)
+                os.remove(smps_hat_h5)
+                return load_real_dataset_handle(idx, acceleration_rate, is_return_y_smps_hat, mask_pattern,
+                                                smps_hat_method)
         if not os.path.exists(smps_hat_h5):
+            #os.environ['CUPY_CACHE_DIR'] = '/tmp/cupy'
+            #os.environ['NUMBA_CACHE_DIR'] = '/tmp/numba'
             os.environ['CUPY_CACHE_DIR'] = os.path.join(TMPDIR, "cupy")
             os.environ['NUMBA_CACHE_DIR'] = os.path.join(TMPDIR, "numba")
             from sigpy.mri.app import EspiritCalib
@@ -300,50 +324,63 @@ def load_real_dataset_handle(
             import cupy
 
             num_slice = y.shape[0]
-            iter_ = tqdm.tqdm(range(num_slice), desc=f'[{idx}, {INDEX2FILE(idx)}] Generating coil sensitivity map (smps_hat)', disable=not is_main_process())
+            iter_ = tqdm.tqdm(range(num_slice), desc='[%d, %s] Generating coil sensitivity map (smps_hat)' % (
+                idx, INDEX2FILE(idx)), disable=not is_main_process())
+
             smps_hat = np.zeros_like(y)
             for i in iter_:
-                tmp = EspiritCalib(y[i] * mask.cpu().numpy(), device=Device(0), show_pbar=False).run()
+                #tmp = EspiritCalib(y[i] * mask, device=Device(0), show_pbar=False).run()
+                if isinstance(y[i], np.ndarray) and isinstance(mask, torch.Tensor):
+                    tmp = EspiritCalib(y[i] * mask.cpu().numpy(), device=Device(0), show_pbar=False).run()
+                else:
+                    tmp = EspiritCalib(y[i] * mask, device=Device(0), show_pbar=False).run()
                 tmp = cupy.asnumpy(tmp)
                 smps_hat[i] = tmp
 
-            tmp_file = smps_hat_h5 + ".tmp"
-            with h5py.File(tmp_file, 'w') as f:
+            if os.path.exists(smps_hat_h5):
+                os.remove(smps_hat_h5)
+            with h5py.File(smps_hat_h5, 'w') as f:
                 f.create_dataset(name='smps_hat', data=smps_hat)
-            os.rename(tmp_file, smps_hat_h5)
 
             tmp = np.ones(shape=smps_hat.shape, dtype=np.uint8)
             for i in range(tmp.shape[0]):
                 for j in range(tmp.shape[1]):
                     tmp[i, j] = np_normalize_to_uint8(abs(smps_hat[i, j]))
             tifffile.imwrite(smps_hat_h5.replace('.h5', '_qc.tiff'), data=tmp, compression='zlib', imagej=True)
+
         else:
+
             with h5py.File(smps_hat_h5, 'r') as f:
                 smps_hat = f['smps_hat'][:]
 
-        # === 生成 x_hat ===
         y = torch.from_numpy(y)
         smps_hat = torch.from_numpy(smps_hat)
+        # 添加这行确保 mask 是 torch.Tensor
         if isinstance(mask, np.ndarray):
             mask = torch.from_numpy(mask)
         x_hat = ftran(y, smps_hat, mask)
 
-        tmp_file = x_hat_h5 + ".tmp"
-        with h5py.File(tmp_file, 'w') as f:
+        if os.path.exists(x_hat_h5):
+            os.remove(x_hat_h5)
+        with h5py.File(x_hat_h5, 'w') as f:
             f.create_dataset(name='x_hat', data=x_hat)
-        os.rename(tmp_file, x_hat_h5)
 
         tmp = np.ones(shape=x_hat.shape, dtype=np.uint8)
         for i in range(x_hat.shape[0]):
             tmp[i] = np_normalize_to_uint8(abs(x_hat[i]).numpy())
         tifffile.imwrite(x_hat_h5.replace('.h5', '_qc.tiff'), data=tmp, compression='zlib', imagej=True)
 
-    ret = {'x_hat': x_hat_h5}
+    ret = {
+        'x_hat': x_hat_h5
+    }
     if is_return_y_smps_hat:
-        ret.update({'smps_hat': smps_hat_h5, 'y': y_h5, 'mask': mask_h5})
+        ret.update({
+            'smps_hat': smps_hat_h5,
+            'y': y_h5,
+            'mask': mask_h5
+        })
+
     return ret
-
-
 
 
 class RealMeasurement(Dataset):
