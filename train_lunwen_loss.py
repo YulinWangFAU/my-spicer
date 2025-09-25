@@ -203,11 +203,17 @@ def try_resume():
     if rng.get('numpy') is not None:
         np.random.set_state(rng['numpy'])
     if rng.get('torch') is not None:
-        torch.set_rng_state(torch.as_tensor(rng['torch']))
+        if isinstance(rng['torch'], torch.ByteTensor):
+            torch.set_rng_state(rng['torch'])
+        else:
+            torch.set_rng_state(torch.tensor(rng['torch'], dtype=torch.uint8))
     if torch.cuda.is_available() and rng.get('torch_cuda') is not None:
         cuda_states = []
         for st in rng['torch_cuda']:
-            cuda_states.append(torch.as_tensor(st, dtype=torch.uint8))
+            if isinstance(st, torch.ByteTensor):
+                cuda_states.append(st)
+            else:
+                cuda_states.append(torch.tensor(st, dtype=torch.uint8))
         torch.cuda.set_rng_state_all(cuda_states)
 
     start_epoch = ckpt.get('epoch', -1) + 1
