@@ -242,29 +242,40 @@ for subj, lst in subject_rows.items():
     def stat_pair(cols):
         v = df[cols].mean(), df[cols].std()
         return float(v[0]), float(v[1])
-    for tag in ["zf", "trained", "init"]:
-        m_psnr, s_psnr = stat_pair(f"psnr_{tag}")
-        m_ssim, s_ssim = stat_pair(f"ssim_{tag}")
-        m_nmse, s_nmse = stat_pair(f"nmse_{tag}")
-    # 写三行（每个方法一行）
-    subj_recs.append({"subject":subj, "method":"zf", "psnr_mean":m_psnr, "psnr_std":s_psnr,
-                      "ssim_mean":m_ssim, "ssim_std":s_ssim, "nmse_mean":m_nmse, "nmse_std":s_nmse})
-    subj_recs.append({"subject":subj, "method":"trained", "psnr_mean":stat_pair("psnr_trained")[0], "psnr_std":stat_pair("psnr_trained")[1],
-                      "ssim_mean":stat_pair("ssim_trained")[0], "ssim_std":stat_pair("ssim_trained")[1],
-                      "nmse_mean":stat_pair("nmse_trained")[0], "nmse_std":stat_pair("nmse_trained")[1]})
-    subj_recs.append({"subject":subj, "method":"init", "psnr_mean":stat_pair("psnr_init")[0], "psnr_std":stat_pair("psnr_init")[1],
-                      "ssim_mean":stat_pair("ssim_init")[0], "ssim_std":stat_pair("ssim_init")[1],
-                      "nmse_mean":stat_pair("nmse_init")[0], "nmse_std":stat_pair("nmse_init")[1]})
+        # zf
+    subj_recs.append({
+        "subject": subj, "method": "zf",
+        "psnr_mean": stat_pair("psnr_zf")[0], "psnr_std": stat_pair("psnr_zf")[1],
+        "ssim_mean": stat_pair("ssim_zf")[0], "ssim_std": stat_pair("ssim_zf")[1],
+        "nmse_mean": stat_pair("nmse_zf")[0], "nmse_std": stat_pair("nmse_zf")[1]
+    })
 
+    # trained
+    subj_recs.append({
+        "subject": subj, "method": "trained",
+        "psnr_mean": stat_pair("psnr_trained")[0], "psnr_std": stat_pair("psnr_trained")[1],
+        "ssim_mean": stat_pair("ssim_trained")[0], "ssim_std": stat_pair("ssim_trained")[1],
+        "nmse_mean": stat_pair("nmse_trained")[0], "nmse_std": stat_pair("nmse_trained")[1]
+    })
+
+    # init
+    subj_recs.append({
+        "subject": subj, "method": "init",
+        "psnr_mean": stat_pair("psnr_init")[0], "psnr_std": stat_pair("psnr_init")[1],
+        "ssim_mean": stat_pair("ssim_init")[0], "ssim_std": stat_pair("ssim_init")[1],
+        "nmse_mean": stat_pair("nmse_init")[0], "nmse_std": stat_pair("nmse_init")[1]
+    })
 df_subj = pd.DataFrame(subj_recs)
 df_subj.to_csv(os.path.join(save_dir, "metrics_subjects.csv"), index=False)
 
-# overall mean
+# overall mean ± std (across all slices)
 overall = {}
-for tag in ["zf","trained","init"]:
+for tag in ["zf", "trained", "init"]:
     overall[f"psnr_{tag}_mean"] = float(df_slices[f"psnr_{tag}"].mean())
+    overall[f"psnr_{tag}_std"]  = float(df_slices[f"psnr_{tag}"].std())
     overall[f"ssim_{tag}_mean"] = float(df_slices[f"ssim_{tag}"].mean())
+    overall[f"ssim_{tag}_std"]  = float(df_slices[f"ssim_{tag}"].std())
     overall[f"nmse_{tag}_mean"] = float(df_slices[f"nmse_{tag}"].mean())
-pd.DataFrame([overall]).to_csv(os.path.join(save_dir, "metrics_overall.csv"), index=False)
+    overall[f"nmse_{tag}_std"]  = float(df_slices[f"nmse_{tag}"].std())
 
-print(f"✅ Done. Outputs saved under: {os.path.abspath(save_dir)}")
+pd.DataFrame([overall]).to_csv(os.path.join(save_dir, "metrics_overall.csv"), index=False)
